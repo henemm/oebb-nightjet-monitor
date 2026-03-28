@@ -38,8 +38,10 @@ func main() {
 	}
 	log.Printf("Watching %d route/date combination(s)", len(watchList))
 
+	consecutiveErrors := 0
+
 	if *once {
-		checkAll(client, cfg.SlackWebhookURL, &watchList)
+		checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
 		return
 	}
 
@@ -48,7 +50,7 @@ func main() {
 	defer stop()
 
 	// Run immediately on start
-	checkAll(client, cfg.SlackWebhookURL, &watchList)
+	checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
 
 	ticker := time.NewTicker(cfg.CheckInterval)
 	defer ticker.Stop()
@@ -65,7 +67,7 @@ func main() {
 				log.Println("All connections found, nothing left to watch. Exiting.")
 				return
 			}
-			checkAll(client, cfg.SlackWebhookURL, &watchList)
+			checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
 		}
 	}
 }
@@ -111,16 +113,27 @@ func resolveStation(client *OEBBClient, name string, cache map[string]*Station) 
 	return s, true
 }
 
-func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry) {
+const consecutiveErrorThreshold = 3
+
+func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, consecutiveErrors *int) {
 	log.Printf("Checking %d route/date combination(s)...", len(*watchList))
 
 	var remaining []watchEntry
+	hadError := false
 
 	for _, entry := range *watchList {
 		connections, err := client.SearchConnections(entry.fromStation, entry.toStation, entry.date)
 		if err != nil {
 			log.Printf("Error checking %s → %s on %s: %v", entry.fromName, entry.toName, entry.date, err)
 			remaining = append(remaining, entry)
+			hadError = true
+			*consecutiveErrors++
+			if *consecutiveErrors == consecutiveErrorThreshold {
+				log.Printf("⚠ %d consecutive errors, sending alert to Slack", *consecutiveErrors)
+				if alertErr := SendSlackError(webhookURL, *consecutiveErrors, err); alertErr != nil {
+					log.Printf("Failed to send error alert: %v", alertErr)
+				}
+			}
 			continue
 		}
 
@@ -134,11 +147,14 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry) {
 
 		if err := SendSlackNotification(webhookURL, connections); err != nil {
 			log.Printf("  ⚠ Slack notification failed: %v", err)
-			// Keep in list so we retry notification next time
 			remaining = append(remaining, entry)
 			continue
 		}
 		log.Printf("  📨 Slack notification sent, removing from watch list")
+	}
+
+	if !hadError {
+		*consecutiveErrors = 0
 	}
 
 	*watchList = remaining

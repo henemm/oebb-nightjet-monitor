@@ -30,7 +30,20 @@ func SendSlackNotification(webhookURL string, connections []Connection) error {
 		sb.WriteString(fmt.Sprintf("🔗 <https://tickets.oebb.at|Jetzt buchen>\n\n"))
 	}
 
-	msg := slackMessage{Text: sb.String()}
+	return sendSlack(webhookURL, sb.String())
+}
+
+func SendSlackError(webhookURL string, errCount int, lastErr error) error {
+	msg := fmt.Sprintf("⚠️ *Nightjet Monitor: API-Fehler*\n\n"+
+		"Die ÖBB API ist %dx hintereinander fehlgeschlagen.\n"+
+		"Letzter Fehler: `%s`\n\n"+
+		"Möglicherweise hat ÖBB die API geändert. Bitte prüfen.",
+		errCount, lastErr)
+	return sendSlack(webhookURL, msg)
+}
+
+func sendSlack(webhookURL, text string) error {
+	msg := slackMessage{Text: text}
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshaling slack message: %w", err)
