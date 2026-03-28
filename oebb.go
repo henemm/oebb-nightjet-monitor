@@ -155,7 +155,7 @@ func (c *OEBBClient) SearchConnections(from, to *Station, date string) ([]Connec
 		"datetimeDeparture": date + "T20:00:00.000",
 		"filter": map[string]interface{}{
 			"regionaltrains": false,
-			"direct":         false,
+			"direct":         true,
 			"changeTime":     false,
 			"wheelchair":     false,
 			"bikes":          false,
