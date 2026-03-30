@@ -16,6 +16,8 @@ type ConnectionConfig struct {
 
 type Config struct {
 	SlackWebhookURL string             `yaml:"slack_webhook_url"`
+	SlackBotToken   string             `yaml:"slack_bot_token"`
+	SlackChannelID  string             `yaml:"slack_channel_id"`
 	CheckInterval   time.Duration      `yaml:"check_interval"`
 	Connections     []ConnectionConfig  `yaml:"connections"`
 }
@@ -23,6 +25,8 @@ type Config struct {
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	type raw struct {
 		SlackWebhookURL string             `yaml:"slack_webhook_url"`
+		SlackBotToken   string             `yaml:"slack_bot_token"`
+		SlackChannelID  string             `yaml:"slack_channel_id"`
 		CheckInterval   string             `yaml:"check_interval"`
 		Connections     []ConnectionConfig  `yaml:"connections"`
 	}
@@ -32,6 +36,8 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	c.SlackWebhookURL = r.SlackWebhookURL
+	c.SlackBotToken = r.SlackBotToken
+	c.SlackChannelID = r.SlackChannelID
 	c.Connections = r.Connections
 
 	dur, err := time.ParseDuration(r.CheckInterval)

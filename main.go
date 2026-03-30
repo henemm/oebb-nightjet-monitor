@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -30,6 +31,7 @@ func main() {
 	log.Printf("Loaded %d connection(s) to monitor", len(cfg.Connections))
 
 	client := NewOEBBClient()
+	statusPoster := NewStatusPoster(cfg.SlackBotToken, cfg.SlackChannelID)
 
 	// Resolve all station names to IDs upfront
 	watchList := resolveStations(client, cfg)
@@ -40,8 +42,17 @@ func main() {
 
 	consecutiveErrors := 0
 
+	runCheck := func() {
+		statuses := checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+		if statusPoster.Enabled() {
+			if err := statusPoster.UpdateTopic(statuses, time.Now()); err != nil {
+				log.Printf("Failed to update Slack topic: %v", err)
+			}
+		}
+	}
+
 	if *once {
-		checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+		runCheck()
 		return
 	}
 
@@ -50,7 +61,7 @@ func main() {
 	defer stop()
 
 	// Run immediately on start
-	checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+	runCheck()
 
 	ticker := time.NewTicker(cfg.CheckInterval)
 	defer ticker.Stop()
@@ -67,7 +78,7 @@ func main() {
 				log.Println("All connections found, nothing left to watch. Exiting.")
 				return
 			}
-			checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+			runCheck()
 		}
 	}
 }
@@ -115,16 +126,21 @@ func resolveStation(client *OEBBClient, name string, cache map[string]*Station) 
 
 const consecutiveErrorThreshold = 3
 
-func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, consecutiveErrors *int) {
+func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, consecutiveErrors *int) []RouteStatus {
 	log.Printf("Checking %d route/date combination(s)...", len(*watchList))
 
 	var remaining []watchEntry
+	var statuses []RouteStatus
 	hadError := false
 
 	for _, entry := range *watchList {
+		rs := RouteStatus{From: entry.fromName, To: entry.toName, Date: entry.date}
+
 		connections, err := client.SearchConnections(entry.fromStation, entry.toStation, entry.date)
 		if err != nil {
 			log.Printf("Error checking %s → %s on %s: %v", entry.fromName, entry.toName, entry.date, err)
+			rs.Status = fmt.Sprintf("Fehler: %v", err)
+			statuses = append(statuses, rs)
 			remaining = append(remaining, entry)
 			hadError = true
 			*consecutiveErrors++
@@ -139,6 +155,8 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, co
 
 		if len(connections) == 0 {
 			log.Printf("  %s → %s on %s: not bookable yet", entry.fromName, entry.toName, entry.date)
+			rs.Status = "Noch nicht buchbar"
+			statuses = append(statuses, rs)
 			remaining = append(remaining, entry)
 			continue
 		}
@@ -147,10 +165,14 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, co
 
 		if err := SendSlackNotification(webhookURL, connections); err != nil {
 			log.Printf("  ⚠ Slack notification failed: %v", err)
+			rs.Status = "bookable"
+			statuses = append(statuses, rs)
 			remaining = append(remaining, entry)
 			continue
 		}
 		log.Printf("  📨 Slack notification sent, removing from watch list")
+		rs.Status = "bookable"
+		statuses = append(statuses, rs)
 	}
 
 	if !hadError {
@@ -158,4 +180,5 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, co
 	}
 
 	*watchList = remaining
+	return statuses
 }
