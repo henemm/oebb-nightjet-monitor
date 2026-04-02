@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,7 +32,6 @@ func main() {
 	log.Printf("Loaded %d connection(s) to monitor", len(cfg.Connections))
 
 	client := NewOEBBClient()
-	statusPoster := NewStatusPoster(cfg.SlackBotToken, cfg.SlackChannelID)
 
 	// Resolve all station names to IDs upfront
 	watchList := resolveStations(client, cfg)
@@ -43,10 +43,13 @@ func main() {
 	consecutiveErrors := 0
 
 	runCheck := func() {
-		statuses := checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
-		if statusPoster.Enabled() {
-			if err := statusPoster.UpdateTopic(statuses, time.Now()); err != nil {
-				log.Printf("Failed to update Slack topic: %v", err)
+		checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+		if cfg.HeartbeatURL != "" {
+			resp, err := http.Get(cfg.HeartbeatURL)
+			if err != nil {
+				log.Printf("Heartbeat ping failed: %v", err)
+			} else {
+				resp.Body.Close()
 			}
 		}
 	}

@@ -19,6 +19,7 @@ type Config struct {
 	SlackBotToken   string             `yaml:"slack_bot_token"`
 	SlackChannelID  string             `yaml:"slack_channel_id"`
 	CheckInterval   time.Duration      `yaml:"check_interval"`
+	HeartbeatURL    string             `yaml:"heartbeat_url"`
 	Connections     []ConnectionConfig  `yaml:"connections"`
 }
 
@@ -28,6 +29,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 		SlackBotToken   string             `yaml:"slack_bot_token"`
 		SlackChannelID  string             `yaml:"slack_channel_id"`
 		CheckInterval   string             `yaml:"check_interval"`
+		HeartbeatURL    string             `yaml:"heartbeat_url"`
 		Connections     []ConnectionConfig  `yaml:"connections"`
 	}
 	var r raw
@@ -38,6 +40,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	c.SlackWebhookURL = r.SlackWebhookURL
 	c.SlackBotToken = r.SlackBotToken
 	c.SlackChannelID = r.SlackChannelID
+	c.HeartbeatURL = r.HeartbeatURL
 	c.Connections = r.Connections
 
 	dur, err := time.ParseDuration(r.CheckInterval)
