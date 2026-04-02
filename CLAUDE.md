@@ -33,16 +33,9 @@ go build -o oebb-nightjet-monitor .
 
 ## Deployment & Infrastruktur
 
-- **Server:** 178.104.143.19 (Hetzner VServer)
+Globale Server-Infos und Monitoring-Anleitung stehen in `~/.claude/CLAUDE.md`.
+
 - **Container:** Docker Compose (`docker-compose.yml`), restart: unless-stopped
-- **Config:** `config.yaml` (Slack Webhook, Verbindungen)
-- **Infrastruktur-Repo:** `henemm/henemm-infra` (Nginx, Docker, Monitoring)
-
-## Monitoring (BetterStack)
-
-- **Heartbeat:** `https://uptime.betterstack.com/api/v1/heartbeat/ukfCbPQfNf1HWFgZ9dovKC6Z`
-
-**TODO:** Heartbeat-Ping nach jedem Check-Zyklus einbauen. In `main.go` nach erfolgreichem Durchlauf:
-```go
-http.Get("https://uptime.betterstack.com/api/v1/heartbeat/ukfCbPQfNf1HWFgZ9dovKC6Z")
-```
+- **Config:** `config.yaml` (Slack Webhook, Heartbeat-URL, Verbindungen)
+- **Infrastruktur-Repo:** `henemm/henemm-infra`
+- **Heartbeat:** Bereits eingebaut — pingt BetterStack nach jedem Check-Zyklus (konfiguriert in `config.yaml`)
