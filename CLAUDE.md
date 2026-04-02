@@ -30,3 +30,19 @@ go build -o oebb-nightjet-monitor .
 ### Dependencies
 - `gopkg.in/yaml.v3` — einzige externe Dependency
 - Go stdlib für alles andere
+
+## Deployment & Infrastruktur
+
+- **Server:** 178.104.143.19 (Hetzner VServer)
+- **Container:** Docker Compose (`docker-compose.yml`), restart: unless-stopped
+- **Config:** `config.yaml` (Slack Webhook, Verbindungen)
+- **Infrastruktur-Repo:** `henemm/henemm-infra` (Nginx, Docker, Monitoring)
+
+## Monitoring (BetterStack)
+
+- **Heartbeat:** `https://uptime.betterstack.com/api/v1/heartbeat/ukfCbPQfNf1HWFgZ9dovKC6Z`
+
+**TODO:** Heartbeat-Ping nach jedem Check-Zyklus einbauen. In `main.go` nach erfolgreichem Durchlauf:
+```go
+http.Get("https://uptime.betterstack.com/api/v1/heartbeat/ukfCbPQfNf1HWFgZ9dovKC6Z")
+```
