@@ -2,13 +2,13 @@
 
 ## Architektur
 
-Go-Service der stündlich ÖBB Nightjet-Verbindungen prüft und per Slack benachrichtigt.
+Go-Service der stündlich ÖBB Nightjet-Verbindungen prüft und per Signal (Callmebot) benachrichtigt.
 
 ### Dateien
 - `main.go` — Entry point, Scheduler (time.Ticker), graceful shutdown
 - `config.go` — YAML Config laden mit `gopkg.in/yaml.v3`
 - `oebb.go` — ÖBB API Client (init, stations, timetable)
-- `notify.go` — Slack Webhook Notification
+- `notify.go` — Signal (Callmebot) Notification
 
 ### ÖBB API Flow
 1. `GET https://tickets.oebb.at/api/domain/v4/init` → accessToken (Header: `Channel: inet`)
@@ -36,6 +36,6 @@ go build -o oebb-nightjet-monitor .
 Globale Server-Infos und Monitoring-Anleitung stehen in `~/.claude/CLAUDE.md`.
 
 - **Container:** Docker Compose (`docker-compose.yml`), restart: unless-stopped
-- **Config:** `config.yaml` (Slack Webhook, Heartbeat-URL, Verbindungen)
+- **Config:** `config.yaml` (Signal Phone/ApiKey, Heartbeat-URL, Verbindungen)
 - **Infrastruktur-Repo:** `henemm/henemm-infra`
 - **Heartbeat:** Bereits eingebaut — pingt BetterStack nach jedem Check-Zyklus (konfiguriert in `config.yaml`)

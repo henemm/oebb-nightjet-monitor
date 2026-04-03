@@ -9,14 +9,6 @@ import (
 	"time"
 )
 
-// RouteStatus holds the result of the last check for a single route/date.
-type RouteStatus struct {
-	From   string
-	To     string
-	Date   string
-	Status string // "not bookable yet", "bookable", or error description
-}
-
 func SendSignalNotification(phone, apiKey string, connections []Connection) error {
 	if len(connections) == 0 {
 		return nil
