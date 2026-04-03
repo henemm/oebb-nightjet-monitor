@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -43,7 +42,7 @@ func main() {
 	consecutiveErrors := 0
 
 	runCheck := func() {
-		checkAll(client, cfg.SlackWebhookURL, &watchList, &consecutiveErrors)
+		checkAll(client, cfg, &watchList, &consecutiveErrors)
 		if cfg.HeartbeatURL != "" {
 			resp, err := http.Get(cfg.HeartbeatURL)
 			if err != nil {
@@ -129,27 +128,22 @@ func resolveStation(client *OEBBClient, name string, cache map[string]*Station) 
 
 const consecutiveErrorThreshold = 3
 
-func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, consecutiveErrors *int) []RouteStatus {
+func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecutiveErrors *int) {
 	log.Printf("Checking %d route/date combination(s)...", len(*watchList))
 
 	var remaining []watchEntry
-	var statuses []RouteStatus
 	hadError := false
 
 	for _, entry := range *watchList {
-		rs := RouteStatus{From: entry.fromName, To: entry.toName, Date: entry.date}
-
 		connections, err := client.SearchConnections(entry.fromStation, entry.toStation, entry.date)
 		if err != nil {
 			log.Printf("Error checking %s → %s on %s: %v", entry.fromName, entry.toName, entry.date, err)
-			rs.Status = fmt.Sprintf("Fehler: %v", err)
-			statuses = append(statuses, rs)
 			remaining = append(remaining, entry)
 			hadError = true
 			*consecutiveErrors++
 			if *consecutiveErrors == consecutiveErrorThreshold {
-				log.Printf("⚠ %d consecutive errors, sending alert to Slack", *consecutiveErrors)
-				if alertErr := SendSlackError(webhookURL, *consecutiveErrors, err); alertErr != nil {
+				log.Printf("⚠ %d consecutive errors, sending alert via Signal", *consecutiveErrors)
+				if alertErr := SendSignalError(cfg.SignalPhone, cfg.SignalAPIKey, *consecutiveErrors, err); alertErr != nil {
 					log.Printf("Failed to send error alert: %v", alertErr)
 				}
 			}
@@ -158,24 +152,18 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, co
 
 		if len(connections) == 0 {
 			log.Printf("  %s → %s on %s: not bookable yet", entry.fromName, entry.toName, entry.date)
-			rs.Status = "Noch nicht buchbar"
-			statuses = append(statuses, rs)
 			remaining = append(remaining, entry)
 			continue
 		}
 
 		log.Printf("  ✅ %s → %s on %s: %d Nightjet(s) found!", entry.fromName, entry.toName, entry.date, len(connections))
 
-		if err := SendSlackNotification(webhookURL, connections); err != nil {
-			log.Printf("  ⚠ Slack notification failed: %v", err)
-			rs.Status = "bookable"
-			statuses = append(statuses, rs)
+		if err := SendSignalNotification(cfg.SignalPhone, cfg.SignalAPIKey, connections); err != nil {
+			log.Printf("  ⚠ Signal notification failed: %v", err)
 			remaining = append(remaining, entry)
 			continue
 		}
-		log.Printf("  📨 Slack notification sent, removing from watch list")
-		rs.Status = "bookable"
-		statuses = append(statuses, rs)
+		log.Printf("  📨 Signal notification sent, removing from watch list")
 	}
 
 	if !hadError {
@@ -183,5 +171,4 @@ func checkAll(client *OEBBClient, webhookURL string, watchList *[]watchEntry, co
 	}
 
 	*watchList = remaining
-	return statuses
 }

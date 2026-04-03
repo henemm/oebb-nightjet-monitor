@@ -15,31 +15,28 @@ type ConnectionConfig struct {
 }
 
 type Config struct {
-	SlackWebhookURL string             `yaml:"slack_webhook_url"`
-	SlackBotToken   string             `yaml:"slack_bot_token"`
-	SlackChannelID  string             `yaml:"slack_channel_id"`
-	CheckInterval   time.Duration      `yaml:"check_interval"`
-	HeartbeatURL    string             `yaml:"heartbeat_url"`
-	Connections     []ConnectionConfig  `yaml:"connections"`
+	SignalPhone   string             `yaml:"signal_phone"`
+	SignalAPIKey  string             `yaml:"signal_apikey"`
+	CheckInterval time.Duration     `yaml:"check_interval"`
+	HeartbeatURL  string            `yaml:"heartbeat_url"`
+	Connections   []ConnectionConfig `yaml:"connections"`
 }
 
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	type raw struct {
-		SlackWebhookURL string             `yaml:"slack_webhook_url"`
-		SlackBotToken   string             `yaml:"slack_bot_token"`
-		SlackChannelID  string             `yaml:"slack_channel_id"`
-		CheckInterval   string             `yaml:"check_interval"`
-		HeartbeatURL    string             `yaml:"heartbeat_url"`
-		Connections     []ConnectionConfig  `yaml:"connections"`
+		SignalPhone   string             `yaml:"signal_phone"`
+		SignalAPIKey  string             `yaml:"signal_apikey"`
+		CheckInterval string            `yaml:"check_interval"`
+		HeartbeatURL  string            `yaml:"heartbeat_url"`
+		Connections   []ConnectionConfig `yaml:"connections"`
 	}
 	var r raw
 	if err := node.Decode(&r); err != nil {
 		return err
 	}
 
-	c.SlackWebhookURL = r.SlackWebhookURL
-	c.SlackBotToken = r.SlackBotToken
-	c.SlackChannelID = r.SlackChannelID
+	c.SignalPhone = r.SignalPhone
+	c.SignalAPIKey = r.SignalAPIKey
 	c.HeartbeatURL = r.HeartbeatURL
 	c.Connections = r.Connections
 
@@ -62,8 +59,8 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if cfg.SlackWebhookURL == "" {
-		return nil, fmt.Errorf("slack_webhook_url is required")
+	if cfg.SignalPhone == "" || cfg.SignalAPIKey == "" {
+		return nil, fmt.Errorf("signal_phone and signal_apikey are required")
 	}
 	if len(cfg.Connections) == 0 {
 		return nil, fmt.Errorf("at least one connection is required")
