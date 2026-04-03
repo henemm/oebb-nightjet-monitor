@@ -10,5 +10,5 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /app/oebb-nightjet-monitor .
-ENTRYPOINT ["./oebb-nightjet-monitor"]
-CMD ["-config", "/app/config.yaml"]
+ENTRYPOINT ["./oebb-nightjet-monitor", "-config", "/app/config.yaml"]
+CMD []
