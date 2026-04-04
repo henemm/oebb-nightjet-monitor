@@ -39,3 +39,7 @@ Globale Server-Infos und Monitoring-Anleitung stehen in `~/.claude/CLAUDE.md`.
 - **Config:** `config.yaml` (Signal Phone/ApiKey, Heartbeat-URL, Verbindungen)
 - **Infrastruktur-Repo:** `henemm/henemm-infra`
 - **Heartbeat:** Bereits eingebaut — pingt BetterStack nach jedem Check-Zyklus (konfiguriert in `config.yaml`)
+
+## Messaging
+
+Diese Instanz heißt `nightjet`. Siehe `~/.claude/CLAUDE.md` → "Inter-Instance Messaging" für Details.
