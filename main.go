@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -40,9 +41,12 @@ func main() {
 	log.Printf("Watching %d route/date combination(s)", len(watchList))
 
 	consecutiveErrors := 0
+	canaryFailures := 0
+	canaryAlerted := false
 
 	runCheck := func() {
 		checkAll(client, cfg, &watchList, &consecutiveErrors)
+		runCanaryCheck(client, cfg, &watchList[0], &canaryFailures, &canaryAlerted)
 		if cfg.HeartbeatURL != "" {
 			resp, err := http.Get(cfg.HeartbeatURL)
 			if err != nil {
@@ -171,4 +175,40 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 	}
 
 	*watchList = remaining
+}
+
+const canaryFailureThreshold = 3
+
+func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures *int, alerted *bool) {
+	canaryDate := time.Now().AddDate(0, 0, 3).Format("2006-01-02")
+	log.Printf("Canary check: %s → %s on %s", entry.fromName, entry.toName, canaryDate)
+
+	connections, err := client.SearchConnections(entry.fromStation, entry.toStation, canaryDate)
+	if err != nil {
+		log.Printf("  Canary: API error (handled separately): %v", err)
+		return
+	}
+
+	if len(connections) > 0 {
+		log.Printf("  Canary: ✅ %d Nightjet(s) found — detection works", len(connections))
+		*failures = 0
+		*alerted = false
+		return
+	}
+
+	*failures++
+	log.Printf("  Canary: ⚠ no Nightjet found (%d/%d)", *failures, canaryFailureThreshold)
+
+	if *failures >= canaryFailureThreshold && !*alerted {
+		msg := fmt.Sprintf("🐤 Nightjet Monitor: Canary-Alarm\n\n"+
+			"Seit %d Checks findet der Monitor keinen Nightjet auf der Referenzstrecke %s → %s für nahe Termine.\n\n"+
+			"Möglicherweise hat sich die ÖBB API oder die Nightjet-Erkennung geändert. Bitte prüfen.",
+			*failures, entry.fromName, entry.toName)
+		if err := sendTelegram(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, msg); err != nil {
+			log.Printf("  Canary: Telegram alert failed: %v", err)
+			return
+		}
+		log.Printf("  Canary: 📨 Alert sent")
+		*alerted = true
+	}
 }
