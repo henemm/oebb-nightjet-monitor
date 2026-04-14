@@ -15,28 +15,31 @@ type ConnectionConfig struct {
 }
 
 type Config struct {
-	SignalPhone   string             `yaml:"signal_phone"`
-	SignalAPIKey  string             `yaml:"signal_apikey"`
-	CheckInterval time.Duration     `yaml:"check_interval"`
-	HeartbeatURL  string            `yaml:"heartbeat_url"`
-	Connections   []ConnectionConfig `yaml:"connections"`
+	TelegramBotToken string             `yaml:"telegram_bot_token"`
+	TelegramChatID   string             `yaml:"telegram_chat_id"`
+	TelegramTopicID  int                `yaml:"telegram_topic_id"`
+	CheckInterval    time.Duration      `yaml:"check_interval"`
+	HeartbeatURL     string             `yaml:"heartbeat_url"`
+	Connections      []ConnectionConfig `yaml:"connections"`
 }
 
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	type raw struct {
-		SignalPhone   string             `yaml:"signal_phone"`
-		SignalAPIKey  string             `yaml:"signal_apikey"`
-		CheckInterval string            `yaml:"check_interval"`
-		HeartbeatURL  string            `yaml:"heartbeat_url"`
-		Connections   []ConnectionConfig `yaml:"connections"`
+		TelegramBotToken string             `yaml:"telegram_bot_token"`
+		TelegramChatID   string             `yaml:"telegram_chat_id"`
+		TelegramTopicID  int                `yaml:"telegram_topic_id"`
+		CheckInterval    string             `yaml:"check_interval"`
+		HeartbeatURL     string             `yaml:"heartbeat_url"`
+		Connections      []ConnectionConfig `yaml:"connections"`
 	}
 	var r raw
 	if err := node.Decode(&r); err != nil {
 		return err
 	}
 
-	c.SignalPhone = r.SignalPhone
-	c.SignalAPIKey = r.SignalAPIKey
+	c.TelegramBotToken = r.TelegramBotToken
+	c.TelegramChatID = r.TelegramChatID
+	c.TelegramTopicID = r.TelegramTopicID
 	c.HeartbeatURL = r.HeartbeatURL
 	c.Connections = r.Connections
 
@@ -59,8 +62,8 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	if cfg.SignalPhone == "" || cfg.SignalAPIKey == "" {
-		return nil, fmt.Errorf("signal_phone and signal_apikey are required")
+	if cfg.TelegramBotToken == "" || cfg.TelegramChatID == "" {
+		return nil, fmt.Errorf("telegram_bot_token and telegram_chat_id are required")
 	}
 	if len(cfg.Connections) == 0 {
 		return nil, fmt.Errorf("at least one connection is required")

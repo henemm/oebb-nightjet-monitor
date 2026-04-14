@@ -142,8 +142,8 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 			hadError = true
 			*consecutiveErrors++
 			if *consecutiveErrors == consecutiveErrorThreshold {
-				log.Printf("⚠ %d consecutive errors, sending alert via Signal", *consecutiveErrors)
-				if alertErr := SendSignalError(cfg.SignalPhone, cfg.SignalAPIKey, *consecutiveErrors, err); alertErr != nil {
+				log.Printf("⚠ %d consecutive errors, sending alert via Telegram", *consecutiveErrors)
+				if alertErr := SendTelegramError(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, *consecutiveErrors, err); alertErr != nil {
 					log.Printf("Failed to send error alert: %v", alertErr)
 				}
 			}
@@ -158,12 +158,12 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 
 		log.Printf("  ✅ %s → %s on %s: %d Nightjet(s) found!", entry.fromName, entry.toName, entry.date, len(connections))
 
-		if err := SendSignalNotification(cfg.SignalPhone, cfg.SignalAPIKey, connections); err != nil {
-			log.Printf("  ⚠ Signal notification failed: %v", err)
+		if err := SendTelegramNotification(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, connections); err != nil {
+			log.Printf("  ⚠ Telegram notification failed: %v", err)
 			remaining = append(remaining, entry)
 			continue
 		}
-		log.Printf("  📨 Signal notification sent, removing from watch list")
+		log.Printf("  📨 Telegram notification sent, removing from watch list")
 	}
 
 	if !hadError {

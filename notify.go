@@ -1,15 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
 
-func SendSignalNotification(phone, apiKey string, connections []Connection) error {
+type telegramMessage struct {
+	ChatID          string `json:"chat_id"`
+	Text            string `json:"text"`
+	MessageThreadID int    `json:"message_thread_id,omitempty"`
+}
+
+func SendTelegramNotification(botToken, chatID string, topicID int, connections []Connection) error {
 	if len(connections) == 0 {
 		return nil
 	}
@@ -26,34 +33,42 @@ func SendSignalNotification(phone, apiKey string, connections []Connection) erro
 		sb.WriteString(fmt.Sprintf("🔗 https://tickets.oebb.at\n\n"))
 	}
 
-	return sendSignal(phone, apiKey, sb.String())
+	return sendTelegram(botToken, chatID, topicID, sb.String())
 }
 
-func SendSignalError(phone, apiKey string, errCount int, lastErr error) error {
+func SendTelegramError(botToken, chatID string, topicID int, errCount int, lastErr error) error {
 	msg := fmt.Sprintf("⚠️ Nightjet Monitor: API-Fehler\n\n"+
 		"Die ÖBB API ist %dx hintereinander fehlgeschlagen.\n"+
 		"Letzter Fehler: %s\n\n"+
 		"Möglicherweise hat ÖBB die API geändert. Bitte prüfen.",
 		errCount, lastErr)
-	return sendSignal(phone, apiKey, msg)
+	return sendTelegram(botToken, chatID, topicID, msg)
 }
 
-func sendSignal(phone, apiKey, text string) error {
-	apiURL := fmt.Sprintf("https://signal.callmebot.com/signal/send.php?phone=%s&apikey=%s&text=%s",
-		url.QueryEscape(phone),
-		url.QueryEscape(apiKey),
-		url.QueryEscape(text))
+func sendTelegram(botToken, chatID string, topicID int, text string) error {
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+
+	msg := telegramMessage{
+		ChatID:          chatID,
+		Text:            text,
+		MessageThreadID: topicID,
+	}
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshaling telegram message: %w", err)
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(apiURL)
+	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("sending signal notification: %w", err)
+		return fmt.Errorf("sending telegram notification: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("signal API returned %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("telegram API returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
