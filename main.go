@@ -177,33 +177,54 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 	*watchList = remaining
 }
 
-const canaryFailureThreshold = 3
+const (
+	canaryFailureThreshold = 3
+	canaryWindowStartDays  = 3
+	canaryWindowEndDays    = 10
+)
 
 func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures *int, alerted *bool) {
-	canaryDate := time.Now().AddDate(0, 0, 3).Format("2006-01-02")
-	log.Printf("Canary check: %s → %s on %s", entry.fromName, entry.toName, canaryDate)
+	from := time.Now().AddDate(0, 0, canaryWindowStartDays).Format("2006-01-02")
+	to := time.Now().AddDate(0, 0, canaryWindowEndDays).Format("2006-01-02")
+	log.Printf("Canary check: %s → %s in window %s..%s", entry.fromName, entry.toName, from, to)
 
-	connections, err := client.SearchConnections(entry.fromStation, entry.toStation, canaryDate)
-	if err != nil {
-		log.Printf("  Canary: API error (handled separately): %v", err)
+	daysWithNightjet := 0
+	daysChecked := 0
+	apiErrors := 0
+	for offset := canaryWindowStartDays; offset <= canaryWindowEndDays; offset++ {
+		date := time.Now().AddDate(0, 0, offset).Format("2006-01-02")
+		connections, err := client.SearchConnections(entry.fromStation, entry.toStation, date)
+		if err != nil {
+			apiErrors++
+			continue
+		}
+		daysChecked++
+		if len(connections) > 0 {
+			daysWithNightjet++
+		}
+	}
+
+	if daysChecked == 0 {
+		log.Printf("  Canary: API error on all %d days (handled separately)", apiErrors)
 		return
 	}
 
-	if len(connections) > 0 {
-		log.Printf("  Canary: ✅ %d Nightjet(s) found — detection works", len(connections))
+	// Erwartung: an mind. 50% der erfolgreich abgefragten Tage findet die Detection einen NJ.
+	if daysWithNightjet*2 >= daysChecked {
+		log.Printf("  Canary: ✅ %d/%d days with Nightjet — detection works", daysWithNightjet, daysChecked)
 		*failures = 0
 		*alerted = false
 		return
 	}
 
 	*failures++
-	log.Printf("  Canary: ⚠ no Nightjet found (%d/%d)", *failures, canaryFailureThreshold)
+	log.Printf("  Canary: ⚠ only %d/%d days with Nightjet (%d/%d)", daysWithNightjet, daysChecked, *failures, canaryFailureThreshold)
 
 	if *failures >= canaryFailureThreshold && !*alerted {
 		msg := fmt.Sprintf("🐤 Nightjet Monitor: Canary-Alarm\n\n"+
-			"Seit %d Checks findet der Monitor keinen Nightjet auf der Referenzstrecke %s → %s für nahe Termine.\n\n"+
+			"Seit %d Checks findet der Monitor an weniger als der Hälfte der Tage einen Nightjet auf der Referenzstrecke %s → %s (Fenster heute+%d bis heute+%d Tage).\n\n"+
 			"Möglicherweise hat sich die ÖBB API oder die Nightjet-Erkennung geändert. Bitte prüfen.",
-			*failures, entry.fromName, entry.toName)
+			*failures, entry.fromName, entry.toName, canaryWindowStartDays, canaryWindowEndDays)
 		if err := sendTelegram(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, msg); err != nil {
 			log.Printf("  Canary: Telegram alert failed: %v", err)
 			return
