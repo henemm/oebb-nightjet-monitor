@@ -33,21 +33,43 @@ func main() {
 
 	client := NewOEBBClient()
 
-	// Resolve all station names to IDs upfront
+	// Try to resolve all station names to IDs upfront. Tolerate startup failure —
+	// the ÖBB API may be transiently down (503/403). Lazy re-resolve in runCheck.
 	watchList := resolveStations(client, cfg)
-	if len(watchList) == 0 {
-		log.Fatal("No valid connections to watch after station resolution")
+	var canaryEntry *watchEntry
+	if len(watchList) > 0 {
+		e := watchList[0]
+		canaryEntry = &e
+		log.Printf("Watching %d route/date combination(s)", len(watchList))
+	} else {
+		log.Printf("⚠ No connections resolved at startup (ÖBB API may be down). Will retry each cycle.")
 	}
-	log.Printf("Watching %d route/date combination(s)", len(watchList))
 
 	consecutiveErrors := 0
 	errorAlerted := false
 	canaryFailures := 0
 	canaryAlerted := false
+	watchListWasInitialized := canaryEntry != nil
 
 	runCheck := func() {
-		checkOK := checkAll(client, cfg, &watchList, &consecutiveErrors, &errorAlerted)
-		canaryAPIOK := runCanaryCheck(client, cfg, &watchList[0], &canaryFailures, &canaryAlerted)
+		if canaryEntry == nil {
+			log.Printf("Retrying station resolution...")
+			watchList = resolveStations(client, cfg)
+			if len(watchList) == 0 {
+				log.Printf("⚠ Station resolution still failing — skipping cycle (no heartbeat ping)")
+				return
+			}
+			e := watchList[0]
+			canaryEntry = &e
+			watchListWasInitialized = true
+			log.Printf("Resolved %d route/date combination(s) on retry", len(watchList))
+		}
+
+		checkOK := true
+		if len(watchList) > 0 {
+			checkOK = checkAll(client, cfg, &watchList, &consecutiveErrors, &errorAlerted)
+		}
+		canaryAPIOK := runCanaryCheck(client, cfg, canaryEntry, &canaryFailures, &canaryAlerted)
 		if cfg.HeartbeatURL != "" {
 			if checkOK && canaryAPIOK {
 				resp, err := http.Get(cfg.HeartbeatURL)
@@ -85,8 +107,8 @@ func main() {
 			log.Println("Shutting down gracefully...")
 			return
 		case <-ticker.C:
-			if len(watchList) == 0 {
-				log.Println("All connections found, nothing left to watch. Exiting.")
+			if watchListWasInitialized && len(watchList) == 0 {
+				log.Println("All connections notified, nothing left to watch. Exiting.")
 				return
 			}
 			runCheck()
