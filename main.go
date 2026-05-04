@@ -41,18 +41,23 @@ func main() {
 	log.Printf("Watching %d route/date combination(s)", len(watchList))
 
 	consecutiveErrors := 0
+	errorAlerted := false
 	canaryFailures := 0
 	canaryAlerted := false
 
 	runCheck := func() {
-		checkAll(client, cfg, &watchList, &consecutiveErrors)
-		runCanaryCheck(client, cfg, &watchList[0], &canaryFailures, &canaryAlerted)
+		checkOK := checkAll(client, cfg, &watchList, &consecutiveErrors, &errorAlerted)
+		canaryAPIOK := runCanaryCheck(client, cfg, &watchList[0], &canaryFailures, &canaryAlerted)
 		if cfg.HeartbeatURL != "" {
-			resp, err := http.Get(cfg.HeartbeatURL)
-			if err != nil {
-				log.Printf("Heartbeat ping failed: %v", err)
+			if checkOK && canaryAPIOK {
+				resp, err := http.Get(cfg.HeartbeatURL)
+				if err != nil {
+					log.Printf("Heartbeat ping failed: %v", err)
+				} else {
+					resp.Body.Close()
+				}
 			} else {
-				resp.Body.Close()
+				log.Printf("Heartbeat skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — BetterStack soll Alarm schlagen", checkOK, canaryAPIOK)
 			}
 		}
 	}
@@ -132,7 +137,7 @@ func resolveStation(client *OEBBClient, name string, cache map[string]*Station) 
 
 const consecutiveErrorThreshold = 3
 
-func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecutiveErrors *int) {
+func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecutiveErrors *int, alerted *bool) bool {
 	log.Printf("Checking %d route/date combination(s)...", len(*watchList))
 
 	var remaining []watchEntry
@@ -145,10 +150,12 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 			remaining = append(remaining, entry)
 			hadError = true
 			*consecutiveErrors++
-			if *consecutiveErrors == consecutiveErrorThreshold {
+			if *consecutiveErrors >= consecutiveErrorThreshold && !*alerted {
 				log.Printf("⚠ %d consecutive errors, sending alert via Telegram", *consecutiveErrors)
 				if alertErr := SendTelegramError(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, *consecutiveErrors, err); alertErr != nil {
 					log.Printf("Failed to send error alert: %v", alertErr)
+				} else {
+					*alerted = true
 				}
 			}
 			continue
@@ -172,9 +179,11 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 
 	if !hadError {
 		*consecutiveErrors = 0
+		*alerted = false
 	}
 
 	*watchList = remaining
+	return !hadError
 }
 
 const (
@@ -183,7 +192,7 @@ const (
 	canaryWindowEndDays    = 10
 )
 
-func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures *int, alerted *bool) {
+func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures *int, alerted *bool) bool {
 	from := time.Now().AddDate(0, 0, canaryWindowStartDays).Format("2006-01-02")
 	to := time.Now().AddDate(0, 0, canaryWindowEndDays).Format("2006-01-02")
 	log.Printf("Canary check: %s → %s in window %s..%s", entry.fromName, entry.toName, from, to)
@@ -205,8 +214,8 @@ func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures
 	}
 
 	if daysChecked == 0 {
-		log.Printf("  Canary: API error on all %d days (handled separately)", apiErrors)
-		return
+		log.Printf("  Canary: API error on all %d days — markiere API als unhealthy", apiErrors)
+		return false
 	}
 
 	// Erwartung: an mind. 50% der erfolgreich abgefragten Tage findet die Detection einen NJ.
@@ -214,7 +223,7 @@ func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures
 		log.Printf("  Canary: ✅ %d/%d days with Nightjet — detection works", daysWithNightjet, daysChecked)
 		*failures = 0
 		*alerted = false
-		return
+		return true
 	}
 
 	*failures++
@@ -227,9 +236,10 @@ func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures
 			*failures, entry.fromName, entry.toName, canaryWindowStartDays, canaryWindowEndDays)
 		if err := sendTelegram(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, msg); err != nil {
 			log.Printf("  Canary: Telegram alert failed: %v", err)
-			return
+			return true
 		}
 		log.Printf("  Canary: 📨 Alert sent")
 		*alerted = true
 	}
+	return true
 }
