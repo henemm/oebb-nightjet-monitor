@@ -17,6 +17,8 @@ const (
 	initURL     = "https://tickets.oebb.at/api/domain/v4/init"
 	shopBaseURL = "https://shop.oebbtickets.at"
 	tokenMaxAge = 2300 * time.Second // refresh before 2400s timeout
+	// Azure WAF auf shop.oebbtickets.at blockt Go-default-UA mit 403.
+	browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 )
 
 type OEBBClient struct {
@@ -42,6 +44,7 @@ func (c *OEBBClient) Init() error {
 		return fmt.Errorf("creating init request: %w", err)
 	}
 	req.Header.Set("Channel", "inet")
+	req.Header.Set("User-Agent", browserUA)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -91,7 +94,7 @@ func (c *OEBBClient) doRequest(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Channel", "inet")
 	req.Header.Set("AccessToken", c.getToken())
 	req.Header.Set("x-ts-supportid", "1")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", browserUA)
 	return c.httpClient.Do(req)
 }
 
