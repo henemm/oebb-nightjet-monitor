@@ -46,7 +46,7 @@ Globale Server-Infos und Monitoring-Anleitung stehen in `~/.claude/CLAUDE.md`.
 - **Container:** Docker Compose (`docker-compose.yml`), restart: unless-stopped
 - **Config:** `config.yaml` (Telegram Bot-Token/Chat-ID/Topic-ID, Heartbeat-URL, Verbindungen)
 - **Infrastruktur-Repo:** `henemm/henemm-infra`
-- **Heartbeat:** Bereits eingebaut — pingt BetterStack nach jedem Check-Zyklus (konfiguriert in `config.yaml`)
+- **Erfolgsmeldung (Readiness):** Nach jedem fachlich erfolgreichen Zyklus (`checkOK && canaryAPIOK`) schreibt der Monitor einen RFC3339-Zeitstempel in die Datei `success_file` (`config.yaml`, im Container `/data/nightjet.success`, Host: `/home/hem/backups/nightjet-monitor/nightjet.success`). `henemm-infra/scripts/monitor.sh` (`check_nightjet`) prüft das Alter und alarmiert kritisch. Der BetterStack-Ping (`heartbeat_url`) ist optional — die Quota ist voll, der alte Heartbeat gelöscht.
 
 ## Messaging
 
