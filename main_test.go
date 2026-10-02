@@ -2,7 +2,11 @@ package main
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // Zyklus-Tests gegen Fake-HAFAS, Fake-Heartbeat und Fake-Telegram.
@@ -192,5 +196,32 @@ func TestWatchHit_TelegramFailureKeepsEntry(t *testing.T) {
 	m.runCheck()
 	if len(m.watchList) != 1 {
 		t.Errorf("Eintrag muss bei Telegram-Fehler bleiben, watchList = %+v", m.watchList)
+	}
+}
+
+// Erfolgsdatei: wird nur bei fachlich erfolgreichem Zyklus geschrieben (Readiness),
+// der Server-Monitor prüft ihr Alter.
+func TestSuccessFile_WrittenOnlyOnHealthyCycle(t *testing.T) {
+	useFakeTelegram(t)
+	f := newFakeHafas(t)
+	f.trip = func(c hafasCall) (int, string) { return http.StatusForbidden, "gesperrt" }
+
+	path := filepath.Join(t.TempDir(), "nightjet.success")
+	cfg := testConfig("")
+	cfg.SuccessFile = path
+
+	newMonitor(f.client(), cfg).runCheck()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("Erfolgsdatei trotz ausgefallener API geschrieben")
+	}
+
+	f.trip = canaryNightjets
+	newMonitor(f.client(), cfg).runCheck()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Erfolgsdatei nach gesundem Zyklus erwartet: %v", err)
+	}
+	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data))); err != nil {
+		t.Errorf("Erfolgsdatei enthält keinen RFC3339-Zeitstempel: %q", data)
 	}
 }

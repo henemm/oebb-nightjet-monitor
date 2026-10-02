@@ -79,16 +79,28 @@ func (m *monitor) runCheck() {
 		log.Printf("⚠ Canary stations unresolved — no canary check this cycle")
 	}
 
+	if checkOK && canaryAPIOK {
+		m.reportSuccess()
+	} else {
+		log.Printf("Success report skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — Monitoring soll Alarm schlagen", checkOK, canaryAPIOK)
+	}
+}
+
+// reportSuccess meldet einen fachlich erfolgreichen Zyklus: Erfolgsdatei (vom
+// Server-Monitor auf Alter geprüft) und/oder optionaler BetterStack-Ping.
+func (m *monitor) reportSuccess() {
+	if m.cfg.SuccessFile != "" {
+		stamp := time.Now().Format(time.RFC3339) + "\n"
+		if err := os.WriteFile(m.cfg.SuccessFile, []byte(stamp), 0o644); err != nil {
+			log.Printf("Success file write failed: %v", err)
+		}
+	}
 	if m.cfg.HeartbeatURL != "" {
-		if checkOK && canaryAPIOK {
-			resp, err := http.Get(m.cfg.HeartbeatURL)
-			if err != nil {
-				log.Printf("Heartbeat ping failed: %v", err)
-			} else {
-				resp.Body.Close()
-			}
+		resp, err := http.Get(m.cfg.HeartbeatURL)
+		if err != nil {
+			log.Printf("Heartbeat ping failed: %v", err)
 		} else {
-			log.Printf("Heartbeat skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — BetterStack soll Alarm schlagen", checkOK, canaryAPIOK)
+			resp.Body.Close()
 		}
 	}
 }

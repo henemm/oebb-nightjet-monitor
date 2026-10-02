@@ -32,6 +32,7 @@ type Config struct {
 	TelegramTopicID  int                `yaml:"telegram_topic_id"`
 	CheckInterval    time.Duration      `yaml:"check_interval"`
 	HeartbeatURL     string             `yaml:"heartbeat_url"`
+	SuccessFile      string             `yaml:"success_file"`
 	Connections      []ConnectionConfig `yaml:"connections"`
 	Canary           CanaryConfig       `yaml:"canary"`
 }
@@ -43,6 +44,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 		TelegramTopicID  int                `yaml:"telegram_topic_id"`
 		CheckInterval    string             `yaml:"check_interval"`
 		HeartbeatURL     string             `yaml:"heartbeat_url"`
+		SuccessFile      string             `yaml:"success_file"`
 		Connections      []ConnectionConfig `yaml:"connections"`
 		Canary           CanaryConfig       `yaml:"canary"`
 	}
@@ -55,6 +57,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	c.TelegramChatID = r.TelegramChatID
 	c.TelegramTopicID = r.TelegramTopicID
 	c.HeartbeatURL = r.HeartbeatURL
+	c.SuccessFile = r.SuccessFile
 	c.Connections = r.Connections
 	c.Canary = r.Canary
 
