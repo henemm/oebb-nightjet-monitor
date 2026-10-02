@@ -14,6 +14,18 @@ type ConnectionConfig struct {
 	Dates []string `yaml:"dates"`
 }
 
+// CanaryConfig ist die Referenzstrecke für den Canary-Check.
+type CanaryConfig struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+}
+
+// Default-Canary: täglich 2–3 Direkt-Nightjets, auch nach dem Fahrplanwechsel.
+const (
+	defaultCanaryFrom = "Wien Hbf"
+	defaultCanaryTo   = "Innsbruck Hbf"
+)
+
 type Config struct {
 	TelegramBotToken string             `yaml:"telegram_bot_token"`
 	TelegramChatID   string             `yaml:"telegram_chat_id"`
@@ -21,6 +33,7 @@ type Config struct {
 	CheckInterval    time.Duration      `yaml:"check_interval"`
 	HeartbeatURL     string             `yaml:"heartbeat_url"`
 	Connections      []ConnectionConfig `yaml:"connections"`
+	Canary           CanaryConfig       `yaml:"canary"`
 }
 
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
@@ -31,6 +44,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 		CheckInterval    string             `yaml:"check_interval"`
 		HeartbeatURL     string             `yaml:"heartbeat_url"`
 		Connections      []ConnectionConfig `yaml:"connections"`
+		Canary           CanaryConfig       `yaml:"canary"`
 	}
 	var r raw
 	if err := node.Decode(&r); err != nil {
@@ -42,6 +56,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	c.TelegramTopicID = r.TelegramTopicID
 	c.HeartbeatURL = r.HeartbeatURL
 	c.Connections = r.Connections
+	c.Canary = r.Canary
 
 	dur, err := time.ParseDuration(r.CheckInterval)
 	if err != nil {
@@ -70,6 +85,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.CheckInterval == 0 {
 		cfg.CheckInterval = 60 * time.Minute
+	}
+	if cfg.Canary.From == "" || cfg.Canary.To == "" {
+		cfg.Canary = CanaryConfig{From: defaultCanaryFrom, To: defaultCanaryTo}
 	}
 
 	return &cfg, nil

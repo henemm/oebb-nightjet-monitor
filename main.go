@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +19,80 @@ type watchEntry struct {
 	toName      string
 }
 
+// monitor hält den Zustand zwischen den Zyklen (Watchlist, Zähler, Canary).
+type monitor struct {
+	client *OEBBClient
+	cfg    *Config
+
+	watchList            []watchEntry
+	watchListInitialized bool
+	consecutiveErrors    int
+	errorAlerted         bool
+	canaryEntry          *watchEntry // nil, solange die Canary-Stationen nicht aufgelöst sind
+	canaryFailures       int
+	canaryAlerted        bool
+}
+
+// newMonitor löst Watchlist- und Canary-Stationen tolerant auf. Schlägt die
+// Auflösung fehl (HAFAS kurz down), wird in jedem Zyklus erneut versucht.
+func newMonitor(client *OEBBClient, cfg *Config) *monitor {
+	m := &monitor{client: client, cfg: cfg}
+
+	m.watchList = resolveStations(client, cfg)
+	if len(m.watchList) > 0 {
+		m.watchListInitialized = true
+		log.Printf("Watching %d route/date combination(s)", len(m.watchList))
+	} else {
+		log.Printf("⚠ No connections resolved at startup (ÖBB Fahrplanauskunft may be down). Will retry each cycle.")
+	}
+
+	m.canaryEntry = resolveCanary(client, cfg)
+	return m
+}
+
+// runCheck führt einen Zyklus aus: Watchlist, Canary, Heartbeat (nur bei Erfolg).
+func (m *monitor) runCheck() {
+	if !m.watchListInitialized {
+		log.Printf("Retrying station resolution...")
+		m.watchList = resolveStations(m.client, m.cfg)
+		if len(m.watchList) == 0 {
+			log.Printf("⚠ Station resolution still failing — skipping cycle (no heartbeat ping)")
+			return
+		}
+		m.watchListInitialized = true
+		log.Printf("Resolved %d route/date combination(s) on retry", len(m.watchList))
+	}
+
+	checkOK := true
+	if len(m.watchList) > 0 {
+		checkOK = checkAll(m.client, m.cfg, &m.watchList, &m.consecutiveErrors, &m.errorAlerted)
+	}
+
+	if m.canaryEntry == nil {
+		log.Printf("Retrying canary station resolution...")
+		m.canaryEntry = resolveCanary(m.client, m.cfg)
+	}
+	canaryAPIOK := false
+	if m.canaryEntry != nil {
+		canaryAPIOK = runCanaryCheck(m.client, m.cfg, m.canaryEntry, &m.canaryFailures, &m.canaryAlerted)
+	} else {
+		log.Printf("⚠ Canary stations unresolved — no canary check this cycle")
+	}
+
+	if m.cfg.HeartbeatURL != "" {
+		if checkOK && canaryAPIOK {
+			resp, err := http.Get(m.cfg.HeartbeatURL)
+			if err != nil {
+				log.Printf("Heartbeat ping failed: %v", err)
+			} else {
+				resp.Body.Close()
+			}
+		} else {
+			log.Printf("Heartbeat skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — BetterStack soll Alarm schlagen", checkOK, canaryAPIOK)
+		}
+	}
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	once := flag.Bool("once", false, "run check once and exit")
@@ -31,61 +104,10 @@ func main() {
 	}
 	log.Printf("Loaded %d connection(s) to monitor", len(cfg.Connections))
 
-	client := NewOEBBClient()
-
-	// Try to resolve all station names to IDs upfront. Tolerate startup failure —
-	// the ÖBB API may be transiently down (503/403). Lazy re-resolve in runCheck.
-	watchList := resolveStations(client, cfg)
-	var canaryEntry *watchEntry
-	if len(watchList) > 0 {
-		e := watchList[0]
-		canaryEntry = &e
-		log.Printf("Watching %d route/date combination(s)", len(watchList))
-	} else {
-		log.Printf("⚠ No connections resolved at startup (ÖBB API may be down). Will retry each cycle.")
-	}
-
-	consecutiveErrors := 0
-	errorAlerted := false
-	canaryFailures := 0
-	canaryAlerted := false
-	watchListWasInitialized := canaryEntry != nil
-
-	runCheck := func() {
-		if canaryEntry == nil {
-			log.Printf("Retrying station resolution...")
-			watchList = resolveStations(client, cfg)
-			if len(watchList) == 0 {
-				log.Printf("⚠ Station resolution still failing — skipping cycle (no heartbeat ping)")
-				return
-			}
-			e := watchList[0]
-			canaryEntry = &e
-			watchListWasInitialized = true
-			log.Printf("Resolved %d route/date combination(s) on retry", len(watchList))
-		}
-
-		checkOK := true
-		if len(watchList) > 0 {
-			checkOK = checkAll(client, cfg, &watchList, &consecutiveErrors, &errorAlerted)
-		}
-		canaryAPIOK := runCanaryCheck(client, cfg, canaryEntry, &canaryFailures, &canaryAlerted)
-		if cfg.HeartbeatURL != "" {
-			if checkOK && canaryAPIOK {
-				resp, err := http.Get(cfg.HeartbeatURL)
-				if err != nil {
-					log.Printf("Heartbeat ping failed: %v", err)
-				} else {
-					resp.Body.Close()
-				}
-			} else {
-				log.Printf("Heartbeat skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — BetterStack soll Alarm schlagen", checkOK, canaryAPIOK)
-			}
-		}
-	}
+	m := newMonitor(NewOEBBClient(), cfg)
 
 	if *once {
-		runCheck()
+		m.runCheck()
 		return
 	}
 
@@ -94,7 +116,7 @@ func main() {
 	defer stop()
 
 	// Run immediately on start
-	runCheck()
+	m.runCheck()
 
 	ticker := time.NewTicker(cfg.CheckInterval)
 	defer ticker.Stop()
@@ -107,11 +129,11 @@ func main() {
 			log.Println("Shutting down gracefully...")
 			return
 		case <-ticker.C:
-			if watchListWasInitialized && len(watchList) == 0 {
+			if m.watchListInitialized && len(m.watchList) == 0 {
 				log.Println("All connections notified, nothing left to watch. Exiting.")
 				return
 			}
-			runCheck()
+			m.runCheck()
 		}
 	}
 }
@@ -141,6 +163,26 @@ func resolveStations(client *OEBBClient, cfg *Config) []watchEntry {
 		}
 	}
 	return watchList
+}
+
+// resolveCanary löst die Canary-Strecke auf; nil, wenn eine Station fehlschlägt.
+func resolveCanary(client *OEBBClient, cfg *Config) *watchEntry {
+	cache := make(map[string]*Station)
+	from, ok := resolveStation(client, cfg.Canary.From, cache)
+	if !ok {
+		return nil
+	}
+	to, ok := resolveStation(client, cfg.Canary.To, cache)
+	if !ok {
+		return nil
+	}
+	log.Printf("Canary route: %s → %s", cfg.Canary.From, cfg.Canary.To)
+	return &watchEntry{
+		fromStation: from,
+		toStation:   to,
+		fromName:    cfg.Canary.From,
+		toName:      cfg.Canary.To,
+	}
 }
 
 func resolveStation(client *OEBBClient, name string, cache map[string]*Station) (*Station, bool) {
@@ -184,12 +226,12 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 		}
 
 		if len(connections) == 0 {
-			log.Printf("  %s → %s on %s: not bookable yet", entry.fromName, entry.toName, entry.date)
+			log.Printf("  %s → %s on %s: no direct Nightjet in timetable yet", entry.fromName, entry.toName, entry.date)
 			remaining = append(remaining, entry)
 			continue
 		}
 
-		log.Printf("  ✅ %s → %s on %s: %d Nightjet(s) found!", entry.fromName, entry.toName, entry.date, len(connections))
+		log.Printf("  ✅ %s → %s on %s: %d Nightjet(s) found in timetable!", entry.fromName, entry.toName, entry.date, len(connections))
 
 		if err := SendTelegramNotification(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, connections); err != nil {
 			log.Printf("  ⚠ Telegram notification failed: %v", err)
@@ -252,10 +294,7 @@ func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures
 	log.Printf("  Canary: ⚠ only %d/%d days with Nightjet (%d/%d)", daysWithNightjet, daysChecked, *failures, canaryFailureThreshold)
 
 	if *failures >= canaryFailureThreshold && !*alerted {
-		msg := fmt.Sprintf("🐤 Nightjet Monitor: Canary-Alarm\n\n"+
-			"Seit %d Checks findet der Monitor an weniger als der Hälfte der Tage einen Nightjet auf der Referenzstrecke %s → %s (Fenster heute+%d bis heute+%d Tage).\n\n"+
-			"Möglicherweise hat sich die ÖBB API oder die Nightjet-Erkennung geändert. Bitte prüfen.",
-			*failures, entry.fromName, entry.toName, canaryWindowStartDays, canaryWindowEndDays)
+		msg := buildCanaryAlertText(*failures, entry.fromName, entry.toName)
 		if err := sendTelegram(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, msg); err != nil {
 			log.Printf("  Canary: Telegram alert failed: %v", err)
 			return true

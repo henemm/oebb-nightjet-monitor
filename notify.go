@@ -10,19 +10,20 @@ import (
 	"time"
 )
 
+// telegramBaseURL ist die Basis-URL der Telegram Bot API (in Tests überschreibbar).
+var telegramBaseURL = "https://api.telegram.org"
+
 type telegramMessage struct {
 	ChatID          string `json:"chat_id"`
 	Text            string `json:"text"`
 	MessageThreadID int    `json:"message_thread_id,omitempty"`
 }
 
-func SendTelegramNotification(botToken, chatID string, topicID int, connections []Connection) error {
-	if len(connections) == 0 {
-		return nil
-	}
-
+// buildNotificationText baut den Treffer-Text. Ein Fahrplan-Treffer ist kein
+// Buchbarkeits-Nachweis — der Text sagt das ehrlich.
+func buildNotificationText(connections []Connection) string {
 	var sb strings.Builder
-	sb.WriteString("🚂 Nightjet jetzt buchbar!\n\n")
+	sb.WriteString("🚂 Direktverbindung im Fahrplan gefunden — Buchbarkeit bitte prüfen\n\n")
 
 	for _, c := range connections {
 		sb.WriteString(fmt.Sprintf("%s: %s → %s\n", c.TrainName, c.From, c.To))
@@ -30,23 +31,39 @@ func SendTelegramNotification(botToken, chatID string, topicID int, connections 
 		sb.WriteString(fmt.Sprintf("🕐 Abfahrt: %s — Ankunft: %s\n",
 			c.Departure.Format("15:04"),
 			c.Arrival.Format("15:04")))
-		sb.WriteString(fmt.Sprintf("🔗 https://tickets.oebb.at\n\n"))
+		sb.WriteString("🔗 https://tickets.oebb.at\n\n")
 	}
+	return sb.String()
+}
 
-	return sendTelegram(botToken, chatID, topicID, sb.String())
+func buildErrorText(errCount int, lastErr error) string {
+	return fmt.Sprintf("⚠️ Nightjet Monitor: Fahrplan-Fehler\n\n"+
+		"Die ÖBB Fahrplanauskunft ist %dx hintereinander fehlgeschlagen.\n"+
+		"Letzter Fehler: %s\n\n"+
+		"Möglicherweise hat ÖBB die Schnittstelle geändert. Bitte prüfen.",
+		errCount, lastErr)
+}
+
+func buildCanaryAlertText(failures int, fromName, toName string) string {
+	return fmt.Sprintf("🐤 Nightjet Monitor: Canary-Alarm\n\n"+
+		"Seit %d Checks findet der Monitor an weniger als der Hälfte der Tage einen Nightjet auf der Referenzstrecke %s → %s (Fenster heute+%d bis heute+%d Tage).\n\n"+
+		"Möglicherweise hat sich die ÖBB Fahrplanauskunft oder die Nightjet-Erkennung geändert. Bitte prüfen.",
+		failures, fromName, toName, canaryWindowStartDays, canaryWindowEndDays)
+}
+
+func SendTelegramNotification(botToken, chatID string, topicID int, connections []Connection) error {
+	if len(connections) == 0 {
+		return nil
+	}
+	return sendTelegram(botToken, chatID, topicID, buildNotificationText(connections))
 }
 
 func SendTelegramError(botToken, chatID string, topicID int, errCount int, lastErr error) error {
-	msg := fmt.Sprintf("⚠️ Nightjet Monitor: API-Fehler\n\n"+
-		"Die ÖBB API ist %dx hintereinander fehlgeschlagen.\n"+
-		"Letzter Fehler: %s\n\n"+
-		"Möglicherweise hat ÖBB die API geändert. Bitte prüfen.",
-		errCount, lastErr)
-	return sendTelegram(botToken, chatID, topicID, msg)
+	return sendTelegram(botToken, chatID, topicID, buildErrorText(errCount, lastErr))
 }
 
 func sendTelegram(botToken, chatID string, topicID int, text string) error {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", telegramBaseURL, botToken)
 
 	msg := telegramMessage{
 		ChatID:          chatID,

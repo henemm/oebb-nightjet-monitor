@@ -43,8 +43,14 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml oebb-nightjet-monitor
 
 ## How it works
 
-1. Resolves station names to ÖBB station IDs
-2. Queries the ÖBB timetable API for each route/date combination
-3. Filters for Nightjet connections (NJ/EN trains)
-4. Sends a Signal notification (via Callmebot) when connections are found
+The monitor queries the public ÖBB timetable (HAFAS, `POST https://fahrplan.oebb.at/bin/mgate.exe`, unofficial web-app endpoint with the web-app AID). The ticket shop is no longer used (blocked by Cloudflare since autumn 2026); no token or init call is needed.
+
+1. Resolves station names to ÖBB station IDs (HAFAS `LocMatch`, first match)
+2. Queries `TripSearch` for each route/date combination — direct connections only (`maxChg=0`, product filter `2762`); connections departing on other days are filtered out
+3. Filters for Nightjets (`prodCtx.catOutS == "NJ"` or `catOutL == "nightjet"`)
+4. Sends a Telegram notification ("Direktverbindung im Fahrplan gefunden — Buchbarkeit bitte prüfen"); a timetable hit is not proof of bookability
 5. Removes found connections from the watch list (no duplicate notifications)
+
+Errors: HTTP != 200, invalid JSON or HAFAS `err` != `OK` are reported as errors; `H890` (no connection) is an empty result.
+
+Canary: optional `canary: {from, to}` in `config.yaml` (default Wien Hbf → Innsbruck Hbf). If fewer than half of the days in the window today+3..today+10 have a Nightjet for 3 cycles in a row, a Telegram alert is sent. The heartbeat is only pinged when the watch list check and the canary query succeed.
