@@ -7,18 +7,26 @@ Go-Service der stündlich ÖBB Nightjet-Verbindungen prüft und per Telegram ben
 ### Dateien
 - `main.go` — Entry point, Scheduler (time.Ticker), graceful shutdown
 - `config.go` — YAML Config laden mit `gopkg.in/yaml.v3`
-- `oebb.go` — ÖBB API Client (init, stations, timetable)
+- `oebb.go` — HAFAS-Client der ÖBB-Fahrplanauskunft (LocMatch, TripSearch)
 - `notify.go` — Telegram Notification
 
-### ÖBB API Flow
-1. `GET https://tickets.oebb.at/api/domain/v4/init` → accessToken (Header: `Channel: inet`)
-2. `GET https://shop.oebbtickets.at/api/hafas/v1/stations?name=...` → Station-IDs
-3. `POST https://shop.oebbtickets.at/api/hafas/v4/timetable` → Verbindungen
+### HAFAS-Ablauf (ÖBB Fahrplanauskunft)
+Der Ticketshop (`shop.oebbtickets.at`) blockt seit Herbst 2026 per Cloudflare (403). Abgefragt wird deshalb die öffentliche Fahrplanauskunft.
 
-**Wichtig:** Init geht über `tickets.oebb.at`, alle anderen Calls über `shop.oebbtickets.at` (Redirect-Problem).
+- **Endpunkt:** `POST https://fahrplan.oebb.at/bin/mgate.exe` (inoffiziell), `Content-Type: application/json`, Browser-User-Agent. Kein Token, kein Init.
+- **Envelope:** `lang: deu`, `svcReqL` mit genau einem Request, `client {id: OEBB, v: 1, type: WEB, name: webapp}`, `ext: OEBB.1`, `ver: 1.41`, `auth {type: AID, aid: OWDL4fE4ixNiPBBm}`. AID/Version stehen als Konstanten in `oebb.go`.
+1. `LocMatch` → `res.match.locL[0]` (`extId` = Stationsnummer, `name`)
+2. `TripSearch` mit `lid = A=1@L=<extId>@`, `outDate = YYYYMMDD`, `maxChg = 0` und Produktfilter `2762` (= Webapp "Nur Direktverbindungen") → `res.outConL[]`. Nur Verbindungen mit `date` == gesuchtes Datum zählen (Folgetage werden mitgeliefert). Zeiten in Europe/Vienna; Ankunft `aTimeS` ist `HHMMSS` oder `DDHHMMSS` (DD = Tagesoffset).
+
+**Fehler:** HTTP != 200, ungültiges JSON, fehlendes `svcResL`, Top-Level `err` != OK oder `svcResL[0].err` != OK → Fehler. Ausnahme `H890` (keine Verbindung) → leeres Ergebnis.
+
+**Hinweis:** Ein Fahrplan-Treffer ist kein Buchbarkeits-Nachweis — die Telegram-Meldung sagt "Direktverbindung im Fahrplan gefunden — Buchbarkeit bitte prüfen".
 
 ### Nightjet erkennen
-Category-Felder: `name`/`shortName`/`displayName` beginnt mit "NJ" oder "EN", oder `longName` enthält "Nightjet" (kann String oder `{"de":"..","en":".."}` sein).
+`secL[].jny.prodX` → `res.common.prodL[]`: `prodCtx.catOutS == "NJ"` oder `prodCtx.catOutL == "nightjet"` (Zugname aus `prodCtx.name`, z. B. `NJ 40421`).
+
+### Canary
+Optionaler Config-Block `canary: {from, to}` — Referenzstrecke, Default Wien Hbf → Innsbruck Hbf (täglich Direkt-Nightjets). Fenster heute+3..heute+10, mind. 50 % der Tage mit Nightjet, nach 3 Fehlzyklen Telegram-Alarm. Canary-Stationen werden lazy aufgelöst; solange das scheitert, kein Heartbeat.
 
 ### Build & Run
 ```bash

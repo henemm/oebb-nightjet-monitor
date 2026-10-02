@@ -7,95 +7,147 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"strings"
-	"sync"
+	"strconv"
 	"time"
+	_ "time/tzdata" // Zeitzonen-Daten einbetten (Alpine/Scratch-Container ohne tzdata)
 )
 
+// HAFAS-Fahrplanauskunft der ÖBB (inoffizieller Webapp-Endpunkt).
+// AID/Version/Client stehen nur hier — ändert ÖBB sie, ist nur dieser Block anzupassen.
 const (
-	initURL     = "https://tickets.oebb.at/api/domain/v4/init"
-	shopBaseURL = "https://shop.oebbtickets.at"
-	tokenMaxAge = 2300 * time.Second // refresh before 2400s timeout
-	// Azure WAF auf shop.oebbtickets.at blockt Go-default-UA mit 403.
+	hafasURL        = "https://fahrplan.oebb.at/bin/mgate.exe"
+	hafasAID        = "OWDL4fE4ixNiPBBm"
+	hafasVersion    = "1.41"
+	hafasExt        = "OEBB.1"
+	hafasLang       = "deu"
+	hafasClientID   = "OEBB"
+	hafasClientV    = "1"
+	hafasClientType = "WEB"
+	hafasClientName = "webapp"
+
+	// Produktfilter der Webapp-Option "Nur Direktverbindungen" (zusammen mit maxChg=0).
+	hafasProductFilter = "2762"
+	// HAFAS-Fehlercode "keine Verbindung gefunden" — leeres Ergebnis, kein Fehler.
+	hafasNoConnection = "H890"
+
+	// Manche ÖBB-Endpunkte blocken den Go-Default-UA.
 	browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 )
 
+// viennaLoc ist die Zeitzone der HAFAS-Zeitangaben.
+var viennaLoc = loadVienna()
+
+func loadVienna() *time.Location {
+	loc, err := time.LoadLocation("Europe/Vienna")
+	if err != nil {
+		log.Printf("⚠ Zeitzone Europe/Vienna nicht ladbar, nutze UTC: %v", err)
+		return time.UTC
+	}
+	return loc
+}
+
 type OEBBClient struct {
-	httpClient  *http.Client
-	accessToken string
-	tokenTime   time.Time
-	mu          sync.Mutex
+	httpClient *http.Client
+	baseURL    string
 }
 
 func NewOEBBClient() *OEBBClient {
 	return &OEBBClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		baseURL:    hafasURL,
 	}
 }
 
-// Init fetches a fresh access token from the ÖBB API.
-func (c *OEBBClient) Init() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+type hafasSvcReq struct {
+	Meth string      `json:"meth"`
+	Req  interface{} `json:"req"`
+}
 
-	req, err := http.NewRequest("GET", initURL, nil)
-	if err != nil {
-		return fmt.Errorf("creating init request: %w", err)
+type hafasClientInfo struct {
+	ID   string `json:"id"`
+	V    string `json:"v"`
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+type hafasAuth struct {
+	Type string `json:"type"`
+	AID  string `json:"aid"`
+}
+
+type hafasEnvelope struct {
+	Lang    string          `json:"lang"`
+	SvcReqL []hafasSvcReq   `json:"svcReqL"`
+	Client  hafasClientInfo `json:"client"`
+	Ext     string          `json:"ext"`
+	Ver     string          `json:"ver"`
+	Auth    hafasAuth       `json:"auth"`
+}
+
+// call sendet genau einen HAFAS-Request und liefert res sowie den Fehlercode aus svcResL[0].
+// Transport-, HTTP-, JSON- und Top-Level-Fehler werden als error zurückgegeben.
+func (c *OEBBClient) call(meth string, req interface{}) (json.RawMessage, string, error) {
+	env := hafasEnvelope{
+		Lang:    hafasLang,
+		SvcReqL: []hafasSvcReq{{Meth: meth, Req: req}},
+		Client:  hafasClientInfo{ID: hafasClientID, V: hafasClientV, Type: hafasClientType, Name: hafasClientName},
+		Ext:     hafasExt,
+		Ver:     hafasVersion,
+		Auth:    hafasAuth{Type: "AID", AID: hafasAID},
 	}
-	req.Header.Set("Channel", "inet")
-	req.Header.Set("User-Agent", browserUA)
-
-	resp, err := c.httpClient.Do(req)
+	body, err := json.Marshal(env)
 	if err != nil {
-		return fmt.Errorf("init request failed: %w", err)
+		return nil, "", fmt.Errorf("marshaling %s request: %w", meth, err)
+	}
+
+	httpReq, err := http.NewRequest("POST", c.baseURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, "", fmt.Errorf("creating %s request: %w", meth, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", browserUA)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s request failed: %w", meth, err)
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("init returned %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("%s returned %d: %s", meth, resp.StatusCode, truncate(string(respBody), 200))
 	}
 
-	var result struct {
-		AccessToken string `json:"accessToken"`
+	var parsed struct {
+		Err     *string `json:"err"`
+		ErrTxt  string  `json:"errTxt"`
+		SvcResL []struct {
+			Err    string          `json:"err"`
+			ErrTxt string          `json:"errTxt"`
+			Res    json.RawMessage `json:"res"`
+		} `json:"svcResL"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decoding init response: %w", err)
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, "", fmt.Errorf("decoding %s response: %w", meth, err)
 	}
-	if result.AccessToken == "" {
-		return fmt.Errorf("empty access token in init response")
+	if parsed.Err != nil && *parsed.Err != "OK" {
+		return nil, "", fmt.Errorf("%s error %s: %s", meth, *parsed.Err, parsed.ErrTxt)
 	}
-
-	c.accessToken = result.AccessToken
-	c.tokenTime = time.Now()
-	log.Printf("ÖBB token acquired")
-	return nil
+	if len(parsed.SvcResL) == 0 {
+		return nil, "", fmt.Errorf("%s response without svcResL", meth)
+	}
+	svc := parsed.SvcResL[0]
+	if svc.Err != "OK" && svc.Err != hafasNoConnection {
+		return nil, "", fmt.Errorf("%s error %s: %s", meth, svc.Err, svc.ErrTxt)
+	}
+	return svc.Res, svc.Err, nil
 }
 
-func (c *OEBBClient) ensureToken() error {
-	c.mu.Lock()
-	needsRefresh := c.accessToken == "" || time.Since(c.tokenTime) > tokenMaxAge
-	c.mu.Unlock()
-
-	if needsRefresh {
-		return c.Init()
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	return nil
-}
-
-func (c *OEBBClient) getToken() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.accessToken
-}
-
-func (c *OEBBClient) doRequest(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Channel", "inet")
-	req.Header.Set("AccessToken", c.getToken())
-	req.Header.Set("x-ts-supportid", "1")
-	req.Header.Set("User-Agent", browserUA)
-	return c.httpClient.Do(req)
+	return s[:n] + "…"
 }
 
 // Station represents an ÖBB station.
@@ -104,38 +156,43 @@ type Station struct {
 	Name   string `json:"name"`
 }
 
-// SearchStation looks up a station by name and returns the best match.
+// SearchStation looks up a station by name (HAFAS LocMatch) and returns the best match.
 func (c *OEBBClient) SearchStation(name string) (*Station, error) {
-	if err := c.ensureToken(); err != nil {
+	req := map[string]interface{}{
+		"input": map[string]interface{}{
+			"field":  "S",
+			"loc":    map[string]interface{}{"name": name, "type": "S"},
+			"maxLoc": 3,
+		},
+	}
+	res, code, err := c.call("LocMatch", req)
+	if err != nil {
 		return nil, err
 	}
-
-	u := shopBaseURL + "/api/hafas/v1/stations?" + url.Values{"name": {name}}.Encode()
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating station request: %w", err)
+	if code != "OK" {
+		return nil, fmt.Errorf("LocMatch error %s for %q", code, name)
 	}
 
-	resp, err := c.doRequest(req)
-	if err != nil {
-		return nil, fmt.Errorf("station request failed: %w", err)
+	var parsed struct {
+		Match struct {
+			LocL []struct {
+				Name  string `json:"name"`
+				ExtID string `json:"extId"`
+			} `json:"locL"`
+		} `json:"match"`
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("station search returned %d: %s", resp.StatusCode, string(body))
+	if err := json.Unmarshal(res, &parsed); err != nil {
+		return nil, fmt.Errorf("decoding LocMatch result: %w", err)
 	}
-
-	var stations []Station
-	if err := json.NewDecoder(resp.Body).Decode(&stations); err != nil {
-		return nil, fmt.Errorf("decoding station response: %w", err)
-	}
-	if len(stations) == 0 {
+	if len(parsed.Match.LocL) == 0 {
 		return nil, fmt.Errorf("no station found for %q", name)
 	}
-
-	return &stations[0], nil
+	first := parsed.Match.LocL[0]
+	num, err := strconv.Atoi(first.ExtID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid extId %q for %q: %w", first.ExtID, name, err)
+	}
+	return &Station{Number: num, Name: first.Name}, nil
 }
 
 // Connection represents a found Nightjet connection.
@@ -148,84 +205,114 @@ type Connection struct {
 	Date      string
 }
 
-// SearchConnections queries the ÖBB timetable for Nightjet connections on a given date.
+func stationLid(s *Station) string {
+	return "A=1@L=" + strconv.Itoa(s.Number) + "@"
+}
+
+// SearchConnections queries HAFAS TripSearch for direct Nightjet connections
+// departing on the given date (YYYY-MM-DD).
 func (c *OEBBClient) SearchConnections(from, to *Station, date string) ([]Connection, error) {
-	if err := c.ensureToken(); err != nil {
+	day, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date %q: %w", date, err)
+	}
+	outDate := day.Format("20060102")
+
+	req := map[string]interface{}{
+		"depLocL":     []map[string]string{{"type": "S", "lid": stationLid(from)}},
+		"arrLocL":     []map[string]string{{"type": "S", "lid": stationLid(to)}},
+		"outDate":     outDate,
+		"outTime":     "000000",
+		"jnyFltrL":    []map[string]string{{"type": "PROD", "mode": "INC", "value": hafasProductFilter}},
+		"maxChg":      0,
+		"numF":        10,
+		"getPasslist": false,
+		"getPolyline": false,
+	}
+	res, code, err := c.call("TripSearch", req)
+	if err != nil {
 		return nil, err
 	}
-
-	body := map[string]interface{}{
-		"datetimeDeparture": date + "T20:00:00.000",
-		"filter": map[string]interface{}{
-			"regionaltrains": false,
-			"direct":         true,
-			"changeTime":     false,
-			"wheelchair":     false,
-			"bikes":          false,
-			"trains":         false,
-		},
-		"passengers": []map[string]interface{}{{}},
-		"count":      5,
-		"from":       map[string]interface{}{"number": from.Number, "name": from.Name},
-		"to":         map[string]interface{}{"number": to.Number, "name": to.Name},
+	if code == hafasNoConnection {
+		return nil, nil
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling timetable request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", shopBaseURL+"/api/hafas/v4/timetable", bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("creating timetable request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.doRequest(req)
-	if err != nil {
-		return nil, fmt.Errorf("timetable request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("timetable returned %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var timetableResp struct {
-		Connections []struct {
-			From struct {
-				Name      string `json:"name"`
-				Departure string `json:"departure"`
-			} `json:"from"`
-			To struct {
+	var parsed struct {
+		Common struct {
+			ProdL []struct {
 				Name    string `json:"name"`
-				Arrival string `json:"arrival"`
-			} `json:"to"`
-			Sections []sectionInfo `json:"sections"`
-		} `json:"connections"`
+				ProdCtx struct {
+					Name    string `json:"name"`
+					CatOutS string `json:"catOutS"`
+					CatOutL string `json:"catOutL"`
+				} `json:"prodCtx"`
+			} `json:"prodL"`
+		} `json:"common"`
+		OutConL []struct {
+			Date string `json:"date"`
+			Dep  struct {
+				DTimeS string `json:"dTimeS"`
+			} `json:"dep"`
+			Arr struct {
+				ATimeS string `json:"aTimeS"`
+			} `json:"arr"`
+			SecL []struct {
+				Type string `json:"type"`
+				Jny  *struct {
+					ProdX *int `json:"prodX"`
+				} `json:"jny"`
+			} `json:"secL"`
+		} `json:"outConL"`
+	}
+	if err := json.Unmarshal(res, &parsed); err != nil {
+		return nil, fmt.Errorf("decoding TripSearch result: %w", err)
 	}
 
-	if err := json.Unmarshal(respBody, &timetableResp); err != nil {
-		return nil, fmt.Errorf("decoding timetable response: %w", err)
-	}
-
+	prodL := parsed.Common.ProdL
 	var nightjets []Connection
-	for _, conn := range timetableResp.Connections {
-		trainName := findNightjetName(conn.Sections)
+	for _, conn := range parsed.OutConL {
+		// TripSearch liefert Folgetage mit — nur der gesuchte Abfahrtstag zählt.
+		if conn.Date != outDate {
+			continue
+		}
+
+		trainName := ""
+		for _, sec := range conn.SecL {
+			if sec.Type != "JNY" || sec.Jny == nil || sec.Jny.ProdX == nil {
+				continue
+			}
+			idx := *sec.Jny.ProdX
+			if idx < 0 || idx >= len(prodL) {
+				continue
+			}
+			p := prodL[idx]
+			if p.ProdCtx.CatOutS == "NJ" || p.ProdCtx.CatOutL == "nightjet" {
+				trainName = p.ProdCtx.Name
+				if trainName == "" {
+					trainName = p.Name
+				}
+				break
+			}
+		}
 		if trainName == "" {
 			continue
 		}
-		dep, _ := time.Parse("2006-01-02T15:04:05.000", conn.From.Departure)
-		arr, _ := time.Parse("2006-01-02T15:04:05.000", conn.To.Arrival)
+
+		dep, err := hafasTime(conn.Date, conn.Dep.DTimeS)
+		if err != nil {
+			return nil, fmt.Errorf("parsing departure: %w", err)
+		}
+		arr, err := hafasTime(conn.Date, conn.Arr.ATimeS)
+		if err != nil {
+			return nil, fmt.Errorf("parsing arrival: %w", err)
+		}
 
 		nightjets = append(nightjets, Connection{
 			TrainName: trainName,
 			Departure: dep,
 			Arrival:   arr,
-			From:      conn.From.Name,
-			To:        conn.To.Name,
+			From:      from.Name,
+			To:        to.Name,
 			Date:      date,
 		})
 	}
@@ -233,52 +320,30 @@ func (c *OEBBClient) SearchConnections(from, to *Station, date string) ([]Connec
 	return nightjets, nil
 }
 
-type sectionInfo struct {
-	Category struct {
-		Name        string          `json:"name"`
-		Number      string          `json:"number"`
-		ShortName   string          `json:"shortName"`
-		DisplayName string          `json:"displayName"`
-		LongName    json.RawMessage `json:"longName"`
-	} `json:"category"`
-	Type string `json:"type"`
-}
-
-// findNightjetName checks if any section is a Nightjet and returns its name, or "" if not.
-func findNightjetName(sections []sectionInfo) string {
-	for _, s := range sections {
-		cat := s.Category
-		if strings.HasPrefix(cat.Name, "NJ") || strings.HasPrefix(cat.Name, "EN") ||
-			strings.HasPrefix(cat.DisplayName, "NJ") || strings.HasPrefix(cat.DisplayName, "EN") ||
-			strings.HasPrefix(cat.ShortName, "NJ") || strings.HasPrefix(cat.ShortName, "EN") ||
-			longNameContains(cat.LongName, "Nightjet") {
-			name := cat.Name
-			if cat.Number != "" {
-				name += " " + cat.Number
-			}
-			return name
+// hafasTime kombiniert ein HAFAS-Datum (YYYYMMDD) mit einer Zeit HHMMSS oder
+// DDHHMMSS (DD = Tagesoffset zum Datum) in Europe/Vienna.
+func hafasTime(date, t string) (time.Time, error) {
+	day, err := time.Parse("20060102", date)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid date %q: %w", date, err)
+	}
+	offset := 0
+	switch len(t) {
+	case 6:
+	case 8:
+		offset, err = strconv.Atoi(t[:2])
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid time %q", t)
 		}
+		t = t[2:]
+	default:
+		return time.Time{}, fmt.Errorf("invalid time %q", t)
 	}
-	return ""
-}
-
-func longNameContains(raw json.RawMessage, target string) bool {
-	if len(raw) == 0 {
-		return false
+	hh, err1 := strconv.Atoi(t[0:2])
+	mm, err2 := strconv.Atoi(t[2:4])
+	ss, err3 := strconv.Atoi(t[4:6])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return time.Time{}, fmt.Errorf("invalid time %q", t)
 	}
-	// Try as string first
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s == target
-	}
-	// Try as localized object {"de":"..","en":".."}
-	var m map[string]string
-	if json.Unmarshal(raw, &m) == nil {
-		for _, v := range m {
-			if v == target {
-				return true
-			}
-		}
-	}
-	return false
+	return time.Date(day.Year(), day.Month(), day.Day()+offset, hh, mm, ss, 0, viennaLoc), nil
 }

@@ -1,0 +1,33 @@
+Unable to find image 'golang:1.26-alpine' locally
+1.26-alpine: Pulling from library/golang
+4f4fb700ef54: Pulling fs layer
+4009a0783f33: Pulling fs layer
+2cb3e687d353: Pulling fs layer
+68ed9cc94538: Pulling fs layer
+4f4fb700ef54: Already exists
+4009a0783f33: Download complete
+68ed9cc94538: Download complete
+4009a0783f33: Pull complete
+874d1b80bbe5: Download complete
+d1504436c401: Download complete
+2cb3e687d353: Download complete
+2cb3e687d353: Pull complete
+4f4fb700ef54: Pull complete
+68ed9cc94538: Pull complete
+Digest: sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+Status: Downloaded newer image for golang:1.26-alpine
+go: downloading gopkg.in/yaml.v3 v3.0.1
+# github.com/henemm/oebb-nightjet-monitor [github.com/henemm/oebb-nightjet-monitor.test]
+./config_test.go:33:9: cfg.Canary undefined (type *Config has no field or method Canary)
+./config_test.go:34:69: cfg.Canary undefined (type *Config has no field or method Canary)
+./config_test.go:44:9: cfg.Canary undefined (type *Config has no field or method Canary)
+./config_test.go:45:68: cfg.Canary undefined (type *Config has no field or method Canary)
+./config_test.go:55:9: cfg.Canary undefined (type *Config has no field or method Canary)
+./config_test.go:56:77: cfg.Canary undefined (type *Config has no field or method Canary)
+./hafas_fake_test.go:123:4: c.baseURL undefined (type *OEBBClient has no field or method baseURL)
+./main_test.go:28:3: unknown field Canary in struct literal of type Config
+./main_test.go:28:21: undefined: CanaryConfig
+./main_test.go:35:9: undefined: telegramBaseURL
+./main_test.go:35:9: too many errors
+FAIL	github.com/henemm/oebb-nightjet-monitor [build failed]
+FAIL
