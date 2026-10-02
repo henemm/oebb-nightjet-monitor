@@ -1,0 +1,147 @@
+go: downloading gopkg.in/yaml.v3 v3.0.1
+=== RUN   TestLoadConfig_CanaryDefault
+--- PASS: TestLoadConfig_CanaryDefault (0.00s)
+=== RUN   TestLoadConfig_CanaryFromConfig
+--- PASS: TestLoadConfig_CanaryFromConfig (0.00s)
+=== RUN   TestLoadConfig_CanaryPartialFallsBackToDefault
+--- PASS: TestLoadConfig_CanaryPartialFallsBackToDefault (0.00s)
+=== RUN   TestLoadConfig_RequiredFieldsStillValidated
+=== RUN   TestLoadConfig_RequiredFieldsStillValidated/ohne_Telegram
+=== RUN   TestLoadConfig_RequiredFieldsStillValidated/ohne_Connections
+--- PASS: TestLoadConfig_RequiredFieldsStillValidated (0.00s)
+    --- PASS: TestLoadConfig_RequiredFieldsStillValidated/ohne_Telegram (0.00s)
+    --- PASS: TestLoadConfig_RequiredFieldsStillValidated/ohne_Connections (0.00s)
+=== RUN   TestCanary_UsesOwnRoute_NotFirstWatchEntry
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   Amsterdam Centraal → Salzburg Hbf on 2026-12-28: no direct Nightjet in timetable yet
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+--- PASS: TestCanary_UsesOwnRoute_NotFirstWatchEntry (0.01s)
+=== RUN   TestCanary_LazyResolve_RetriesAndNoHeartbeatUntilResolved
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Failed to resolve station "Wien Hbf": no station found for "Wien Hbf"
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   Amsterdam Centraal → Salzburg Hbf on 2026-12-28: no direct Nightjet in timetable yet
+2026/10/02 08:47:50 Retrying canary station resolution...
+2026/10/02 08:47:50 Failed to resolve station "Wien Hbf": no station found for "Wien Hbf"
+2026/10/02 08:47:50 ⚠ Canary stations unresolved — no canary check this cycle
+2026/10/02 08:47:50 Heartbeat skipped: API unhealthy (checkOK=true, canaryAPIOK=false) — BetterStack soll Alarm schlagen
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   Amsterdam Centraal → Salzburg Hbf on 2026-12-28: no direct Nightjet in timetable yet
+2026/10/02 08:47:50 Retrying canary station resolution...
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+--- PASS: TestCanary_LazyResolve_RetriesAndNoHeartbeatUntilResolved (0.00s)
+=== RUN   TestHeartbeat_PingedOnceOnHealthyCycle
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   Amsterdam Centraal → Salzburg Hbf on 2026-12-28: no direct Nightjet in timetable yet
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+--- PASS: TestHeartbeat_PingedOnceOnHealthyCycle (0.00s)
+=== RUN   TestHeartbeat_SkippedOnWatchlistError
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50 Error checking Amsterdam Centraal → Salzburg Hbf on 2026-12-28: TripSearch returned 503: down
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+2026/10/02 08:47:50 Heartbeat skipped: API unhealthy (checkOK=false, canaryAPIOK=true) — BetterStack soll Alarm schlagen
+--- PASS: TestHeartbeat_SkippedOnWatchlistError (0.00s)
+=== RUN   TestHeartbeat_SkippedWhenCanaryAPIDown
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50 Error checking Amsterdam Centraal → Salzburg Hbf on 2026-12-28: TripSearch returned 403: gesperrt
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: API error on all 8 days — markiere API als unhealthy
+2026/10/02 08:47:50 Heartbeat skipped: API unhealthy (checkOK=false, canaryAPIOK=false) — BetterStack soll Alarm schlagen
+--- PASS: TestHeartbeat_SkippedWhenCanaryAPIDown (0.00s)
+=== RUN   TestWatchHit_SendsTelegramAndRemovesEntry
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   ✅ Amsterdam Centraal → Salzburg Hbf on 2026-12-28: 1 Nightjet(s) found in timetable!
+2026/10/02 08:47:50   📨 Telegram notification sent, removing from watch list
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+--- PASS: TestWatchHit_SendsTelegramAndRemovesEntry (0.00s)
+=== RUN   TestWatchHit_TelegramFailureKeepsEntry
+2026/10/02 08:47:50 Resolved "Amsterdam Centraal" → Amsterdam Centraal (#8400058)
+2026/10/02 08:47:50 Resolved "Salzburg Hbf" → Salzburg Hbf (#8100002)
+2026/10/02 08:47:50 Watching 1 route/date combination(s)
+2026/10/02 08:47:50 Resolved "Wien Hbf" → Wien Hbf (#8103000)
+2026/10/02 08:47:50 Resolved "Innsbruck Hbf" → Innsbruck Hbf (#8100108)
+2026/10/02 08:47:50 Canary route: Wien Hbf → Innsbruck Hbf
+2026/10/02 08:47:50 Checking 1 route/date combination(s)...
+2026/10/02 08:47:50   ✅ Amsterdam Centraal → Salzburg Hbf on 2026-12-28: 1 Nightjet(s) found in timetable!
+2026/10/02 08:47:50   ⚠ Telegram notification failed: telegram API returned 500: boom
+2026/10/02 08:47:50 Canary check: Wien Hbf → Innsbruck Hbf in window 2026-10-05..2026-10-12
+2026/10/02 08:47:50   Canary: ✅ 8/8 days with Nightjet — detection works
+--- PASS: TestWatchHit_TelegramFailureKeepsEntry (0.00s)
+=== RUN   TestBuildNotificationText_HonestWording
+--- PASS: TestBuildNotificationText_HonestWording (0.00s)
+=== RUN   TestAlarmTexts_NameFahrplanauskunft
+--- PASS: TestAlarmTexts_NameFahrplanauskunft (0.00s)
+=== RUN   TestSearchConnections_RealRecording_OnlyRequestedDay
+--- PASS: TestSearchConnections_RealRecording_OnlyRequestedDay (0.00s)
+=== RUN   TestSearchConnections_FiltersFollowingDays
+--- PASS: TestSearchConnections_FiltersFollowingDays (0.00s)
+=== RUN   TestSearchConnections_H890IsEmptyNotError
+--- PASS: TestSearchConnections_H890IsEmptyNotError (0.00s)
+=== RUN   TestSearchConnections_Errors
+=== RUN   TestSearchConnections_Errors/kaputtes_JSON
+=== RUN   TestSearchConnections_Errors/svcResL_fehlt
+=== RUN   TestSearchConnections_Errors/HTTP_403
+=== RUN   TestSearchConnections_Errors/HTTP_503
+=== RUN   TestSearchConnections_Errors/Top-Level_err
+=== RUN   TestSearchConnections_Errors/svcResL_err
+--- PASS: TestSearchConnections_Errors (0.00s)
+    --- PASS: TestSearchConnections_Errors/kaputtes_JSON (0.00s)
+    --- PASS: TestSearchConnections_Errors/svcResL_fehlt (0.00s)
+    --- PASS: TestSearchConnections_Errors/HTTP_403 (0.00s)
+    --- PASS: TestSearchConnections_Errors/HTTP_503 (0.00s)
+    --- PASS: TestSearchConnections_Errors/Top-Level_err (0.00s)
+    --- PASS: TestSearchConnections_Errors/svcResL_err (0.00s)
+=== RUN   TestSearchConnections_IgnoresNonNightjet
+--- PASS: TestSearchConnections_IgnoresNonNightjet (0.00s)
+=== RUN   TestSearchConnections_DetectsNightjetByLongName
+--- PASS: TestSearchConnections_DetectsNightjetByLongName (0.00s)
+=== RUN   TestSearchStation_Resolves
+--- PASS: TestSearchStation_Resolves (0.00s)
+=== RUN   TestSearchStation_EmptyResultIsError
+--- PASS: TestSearchStation_EmptyResultIsError (0.00s)
+=== RUN   TestSearchStation_HTTPErrorIsError
+--- PASS: TestSearchStation_HTTPErrorIsError (0.00s)
+=== RUN   TestRequestEnvelope
+--- PASS: TestRequestEnvelope (0.00s)
+PASS
+ok  	github.com/henemm/oebb-nightjet-monitor	0.037s
