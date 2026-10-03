@@ -130,6 +130,9 @@ CLAUDE.md (Abschnitt Deployment: `notified_file`, Verhalten bei Zustellfehlern),
 
 ## Architektur-Entscheidung (ADR)
 
+- **ADR-Nr.:** keine
+- **Rationale:** Kleine Zustandsdatei innerhalb eines Einzelservices, ohne neue Architektur, die später schwer änderbar wäre. Begründung der Detailwahl:
+
 Einfache JSON-Datei statt Datenbank: höchstens eine Handvoll Einträge, ein einziger Schreiber (der Container), dasselbe Volume wie die Erfolgsdatei. Atomares Schreiben per Rename verhindert halb geschriebene Dateien bei Absturz. Das Signal für Zustellfehler läuft über die bestehende Erfolgsdatei und braucht keinen zweiten Alarmweg, denn `monitor.sh` alarmiert bereits unabhängig von Telegram.
 
 ## Changelog
