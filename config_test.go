@@ -24,6 +24,25 @@ func writeConfig(t *testing.T, content string) string {
 	return p
 }
 
+// treffer-einmalig AC-8: notified_file wird geladen, ist aber optional.
+func TestLoadConfig_NotifiedFile(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, baseConfig+"notified_file: \"/data/x\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NotifiedFile != "/data/x" {
+		t.Errorf("NotifiedFile = %q, erwartet /data/x", cfg.NotifiedFile)
+	}
+
+	cfg, err = LoadConfig(writeConfig(t, baseConfig))
+	if err != nil {
+		t.Fatalf("ohne notified_file muss das Laden gelingen: %v", err)
+	}
+	if cfg.NotifiedFile != "" {
+		t.Errorf("NotifiedFile ohne Feld = %q, erwartet leer", cfg.NotifiedFile)
+	}
+}
+
 // AC-7: ohne canary-Block gilt der Default.
 func TestLoadConfig_CanaryDefault(t *testing.T) {
 	cfg, err := LoadConfig(writeConfig(t, baseConfig))

@@ -1,0 +1,15 @@
+go: downloading gopkg.in/yaml.v3 v3.0.1
+# github.com/henemm/oebb-nightjet-monitor [github.com/henemm/oebb-nightjet-monitor.test]
+./config_test.go:33:9: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./config_test.go:34:55: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./config_test.go:41:9: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./config_test.go:42:62: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./main_test.go:265:6: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./main_test.go:267:18: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./main_test.go:369:15: undefined: loadNotified
+./main_test.go:380:6: cfg.NotifiedFile undefined (type *Config has no field or method NotifiedFile)
+./notified_test.go:18:12: undefined: loadNotified
+./notified_test.go:32:15: undefined: loadNotified
+./notified_test.go:32:15: too many errors
+FAIL	github.com/henemm/oebb-nightjet-monitor [build failed]
+FAIL

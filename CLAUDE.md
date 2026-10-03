@@ -47,6 +47,10 @@ Globale Server-Infos und Monitoring-Anleitung stehen in `~/.claude/CLAUDE.md`.
 - **Config:** `config.yaml` (Telegram Bot-Token/Chat-ID/Topic-ID, Heartbeat-URL, Verbindungen)
 - **Infrastruktur-Repo:** `henemm/henemm-infra`
 - **Erfolgsmeldung (Readiness):** Nach jedem fachlich erfolgreichen Zyklus (`checkOK && canaryAPIOK`) schreibt der Monitor einen RFC3339-Zeitstempel in die Datei `success_file` (`config.yaml`, im Container `/data/nightjet.success`, Host: `/home/hem/backups/nightjet-monitor/nightjet.success`). `henemm-infra/scripts/monitor.sh` (`check_nightjet`) prüft das Alter und alarmiert kritisch. Der BetterStack-Ping (`heartbeat_url`) ist optional — die Quota ist voll, der alte Heartbeat gelöscht.
+- **Kein Erfolg ohne Zustellung:** Ein gescheiterter Telegram-Versand (Treffer oder Canary-Alarm) und ein nicht gespeicherter Treffer zählen als nicht erfolgreicher Zyklus. Die Erfolgsdatei veraltet, und `monitor.sh` alarmiert über die Infra-Kanäle unabhängig vom Bot. Der Treffer bleibt auf der Watchlist und wird im nächsten Zyklus erneut gesendet.
+- **Gemeldete Treffer:** `notified_file` (Container `/data/nightjet.notified`, Host `/home/hem/backups/nightjet-monitor/nightjet.notified`), JSON-Liste `{from, to, date, notified_at}` mit den Namen aus `config.yaml`. Bereits gemeldete Kombinationen werden beim Start herausgefiltert. Löschen der Datei setzt das zurück: Treffer werden dann erneut gemeldet. Ist die Datei kaputt, gibt es keine Watch-Prüfung und keinen Erfolg (Alarm), bis sie repariert ist. Der Prozess beendet sich nicht mehr selbst, wenn alles gemeldet ist.
+- **Telegram:** Bot `@nightjet_bot`, Gruppe „Nightjet“ (einfache Gruppe ohne Themen, `telegram_topic_id: 0`).
+- **Deploy aus einer Worktree-Session:** `docker compose -f /home/hem/oebb-nightjet-monitor/docker-compose.yml --project-directory /home/hem/oebb-nightjet-monitor up -d --build` (baut aus dem Hauptordner, dort liegt `config.yaml`).
 
 ## Messaging
 
