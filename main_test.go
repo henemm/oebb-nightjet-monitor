@@ -466,3 +466,98 @@ func TestTreffer_InMemoryWithoutNotifiedFile(t *testing.T) {
 		t.Errorf("AC-9: erwartet 1 Treffermeldung, bekam %d", tg.count())
 	}
 }
+
+// AC-5 (Erweiterung): Speichern wird in jedem Zyklus erneut versucht; bis es klappt kein Erfolg
+// und keine erneute Meldung.
+func TestTreffer_SaveFailureRetriedUntilFixed(t *testing.T) {
+	tg := useFakeTelegram(t)
+	f := newFakeHafas(t)
+	f.trip = watchHit
+	cfg, _, successPath := trefferConfig(t)
+	dir := filepath.Join(t.TempDir(), "gibt-es-nicht")
+	cfg.NotifiedFile = filepath.Join(dir, "nightjet.notified")
+
+	m := newMonitor(f.client(), cfg)
+	m.runCheck()
+	m.runCheck()
+	if fileExists(successPath) {
+		t.Fatal("Erfolgsdatei trotz weiterhin scheiterndem Speichern geschrieben")
+	}
+	if tg.count() != 1 {
+		t.Fatalf("erwartet 1 Treffermeldung, bekam %d", tg.count())
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.runCheck()
+	if !fileExists(successPath) {
+		t.Error("nach Reparatur Erfolgsdatei erwartet")
+	}
+	s, err := loadNotified(cfg.NotifiedFile)
+	if err != nil || !s.contains(watchFrom, watchTo, "2026-12-28") {
+		t.Errorf("Notified-Datei enthält den Treffer nicht (err=%v)", err)
+	}
+	if tg.count() != 1 {
+		t.Errorf("weiterhin genau 1 Treffermeldung erwartet, bekam %d", tg.count())
+	}
+}
+
+// F001: Doppelter Config-Eintrag → trotzdem nur eine Meldung und ein gespeicherter Eintrag.
+func TestTreffer_DuplicateConfigEntryNotifiedOnce(t *testing.T) {
+	tg := useFakeTelegram(t)
+	f := newFakeHafas(t)
+	f.trip = watchHit
+	cfg, notifiedPath, successPath := trefferConfig(t)
+	cfg.Connections[0].Dates = []string{"2026-12-28", "2026-12-28"}
+
+	newMonitor(f.client(), cfg).runCheck()
+
+	if tg.count() != 1 {
+		t.Errorf("erwartet 1 Treffermeldung, bekam %d", tg.count())
+	}
+	data, err := os.ReadFile(notifiedPath)
+	if err != nil {
+		t.Fatalf("Notified-Datei fehlt: %v", err)
+	}
+	var entries []notifiedEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		t.Fatalf("kein gültiges JSON: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("erwartet 1 Eintrag, bekam %d", len(entries))
+	}
+	if !fileExists(successPath) {
+		t.Error("Erfolgsdatei fehlt")
+	}
+}
+
+// F002: Store wird erst nach Aufbau der Watchlist ladbar → vor der Prüfung filtern.
+func TestTreffer_RepairedNotifiedFileFiltersBeforeCheck(t *testing.T) {
+	tg := useFakeTelegram(t)
+	f := newFakeHafas(t)
+	f.trip = watchHit
+	cfg, notifiedPath, successPath := trefferConfig(t)
+	if err := os.WriteFile(notifiedPath, []byte("{kaputt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newMonitor(f.client(), cfg)
+	seed := `[{"from":"` + watchFrom + `","to":"` + watchTo + `","date":"2026-12-28","notified_at":"2026-10-01T10:00:00Z"}]`
+	if err := os.WriteFile(notifiedPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.runCheck()
+
+	if tg.count() != 0 {
+		t.Errorf("bereits gemeldeter Treffer nach Reparatur erneut gesendet (%d)", tg.count())
+	}
+	for _, c := range f.tripCalls() {
+		if c.Dep == lidFor("8400058") {
+			t.Errorf("gemeldeter Eintrag wurde trotzdem abgefragt (nicht vor der Prüfung gefiltert): %+v", c)
+		}
+	}
+	if !fileExists(successPath) {
+		t.Error("Erfolgsdatei nach Reparatur erwartet")
+	}
+}

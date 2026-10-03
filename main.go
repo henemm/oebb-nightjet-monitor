@@ -31,16 +31,22 @@ type monitor struct {
 	canaryEntry          *watchEntry // nil, solange die Canary-Stationen nicht aufgelöst sind
 	canaryFailures       int
 	canaryAlerted        bool
+	notified             *notifiedStore // nil, solange die Notified-Datei nicht ladbar ist
 }
 
 // newMonitor löst Watchlist- und Canary-Stationen tolerant auf. Schlägt die
 // Auflösung fehl (HAFAS kurz down), wird in jedem Zyklus erneut versucht.
 func newMonitor(client *OEBBClient, cfg *Config) *monitor {
 	m := &monitor{client: client, cfg: cfg}
+	if cfg.NotifiedFile == "" {
+		log.Printf("⚠ notified_file nicht gesetzt — gemeldete Treffer nur im Arbeitsspeicher (Neustart = erneute Meldung)")
+	}
+	m.ensureNotified()
 
-	m.watchList = resolveStations(client, cfg)
-	if len(m.watchList) > 0 {
+	// Initialisiert = Stationen aufgelöst, auch wenn danach alles gemeldet ist.
+	if resolved := resolveStations(client, cfg); len(resolved) > 0 {
 		m.watchListInitialized = true
+		m.watchList = m.filterNotified(resolved)
 		log.Printf("Watching %d route/date combination(s)", len(m.watchList))
 	} else {
 		log.Printf("⚠ No connections resolved at startup (ÖBB Fahrplanauskunft may be down). Will retry each cycle.")
@@ -54,19 +60,17 @@ func newMonitor(client *OEBBClient, cfg *Config) *monitor {
 func (m *monitor) runCheck() {
 	if !m.watchListInitialized {
 		log.Printf("Retrying station resolution...")
-		m.watchList = resolveStations(m.client, m.cfg)
-		if len(m.watchList) == 0 {
+		resolved := resolveStations(m.client, m.cfg)
+		if len(resolved) == 0 {
 			log.Printf("⚠ Station resolution still failing — skipping cycle (no heartbeat ping)")
 			return
 		}
 		m.watchListInitialized = true
+		m.watchList = m.filterNotified(resolved)
 		log.Printf("Resolved %d route/date combination(s) on retry", len(m.watchList))
 	}
 
-	checkOK := true
-	if len(m.watchList) > 0 {
-		checkOK = checkAll(m.client, m.cfg, &m.watchList, &m.consecutiveErrors, &m.errorAlerted)
-	}
+	checkOK := m.runWatchCheck()
 
 	if m.canaryEntry == nil {
 		log.Printf("Retrying canary station resolution...")
@@ -82,8 +86,60 @@ func (m *monitor) runCheck() {
 	if checkOK && canaryAPIOK {
 		m.reportSuccess()
 	} else {
-		log.Printf("Success report skipped: API unhealthy (checkOK=%v, canaryAPIOK=%v) — Monitoring soll Alarm schlagen", checkOK, canaryAPIOK)
+		log.Printf("Success report skipped: cycle not successful (checkOK=%v, canaryOK=%v) — Monitoring soll Alarm schlagen", checkOK, canaryAPIOK)
 	}
+}
+
+// runWatchCheck prüft die Watchlist. Ohne geladenen Notified-Store keine Prüfung
+// (Schutz vor Doppelmeldung) und kein Erfolg.
+func (m *monitor) runWatchCheck() bool {
+	if !m.ensureNotified() {
+		log.Printf("⚠ Notified-Datei nicht ladbar — keine Watch-Prüfung in diesem Zyklus (kein Erfolg)")
+		return false
+	}
+	// Ungespeicherte Treffer: Speichern erneut versuchen, bis es klappt (sonst kein Erfolg).
+	saveOK := true
+	if m.notified.dirty {
+		if err := m.notified.save(); err != nil {
+			log.Printf("⚠ Notified-Datei weiterhin nicht gespeichert: %v (kein Erfolg)", err)
+			saveOK = false
+		}
+	}
+	// Filtern auch hier: der Store kann erst nach dem Aufbau der Watchlist ladbar geworden sein.
+	m.watchList = m.filterNotified(m.watchList)
+	if len(m.watchList) == 0 {
+		return saveOK
+	}
+	return checkAll(m.client, m.cfg, m.notified, &m.watchList, &m.consecutiveErrors, &m.errorAlerted) && saveOK
+}
+
+// ensureNotified lädt den Notified-Store, falls noch nicht geschehen.
+func (m *monitor) ensureNotified() bool {
+	if m.notified != nil {
+		return true
+	}
+	s, err := loadNotified(m.cfg.NotifiedFile)
+	if err != nil {
+		log.Printf("⚠ Notified-Datei %q nicht ladbar: %v", m.cfg.NotifiedFile, err)
+		return false
+	}
+	m.notified = s
+	return true
+}
+
+// filterNotified entfernt bereits gemeldete Einträge (Schlüssel = Config-Namen + Datum).
+// Ohne geladenen Store bleibt die Liste unverändert.
+func (m *monitor) filterNotified(list []watchEntry) []watchEntry {
+	if m.notified == nil {
+		return list
+	}
+	var kept []watchEntry
+	for _, e := range list {
+		if !m.notified.contains(e.fromName, e.toName, e.date) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 // reportSuccess meldet einen fachlich erfolgreichen Zyklus: Erfolgsdatei (vom
@@ -141,10 +197,6 @@ func main() {
 			log.Println("Shutting down gracefully...")
 			return
 		case <-ticker.C:
-			if m.watchListInitialized && len(m.watchList) == 0 {
-				log.Println("All connections notified, nothing left to watch. Exiting.")
-				return
-			}
 			m.runCheck()
 		}
 	}
@@ -213,11 +265,12 @@ func resolveStation(client *OEBBClient, name string, cache map[string]*Station) 
 
 const consecutiveErrorThreshold = 3
 
-func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecutiveErrors *int, alerted *bool) bool {
+func checkAll(client *OEBBClient, cfg *Config, store *notifiedStore, watchList *[]watchEntry, consecutiveErrors *int, alerted *bool) bool {
 	log.Printf("Checking %d route/date combination(s)...", len(*watchList))
 
 	var remaining []watchEntry
 	hadError := false
+	deliveryOK := true
 
 	for _, entry := range *watchList {
 		connections, err := client.SearchConnections(entry.fromStation, entry.toStation, entry.date)
@@ -245,12 +298,13 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 
 		log.Printf("  ✅ %s → %s on %s: %d Nightjet(s) found in timetable!", entry.fromName, entry.toName, entry.date, len(connections))
 
-		if err := SendTelegramNotification(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, connections); err != nil {
-			log.Printf("  ⚠ Telegram notification failed: %v", err)
+		sent, ok := notifyHit(cfg, store, entry, connections)
+		if !sent {
 			remaining = append(remaining, entry)
-			continue
 		}
-		log.Printf("  📨 Telegram notification sent, removing from watch list")
+		if !ok {
+			deliveryOK = false
+		}
 	}
 
 	if !hadError {
@@ -259,7 +313,26 @@ func checkAll(client *OEBBClient, cfg *Config, watchList *[]watchEntry, consecut
 	}
 
 	*watchList = remaining
-	return !hadError
+	return !hadError && deliveryOK
+}
+
+// notifyHit meldet einen Treffer und merkt ihn sich. sent: Eintrag verlässt die
+// Watchlist; ok: Versand und Speichern haben geklappt.
+func notifyHit(cfg *Config, store *notifiedStore, entry watchEntry, connections []Connection) (sent, ok bool) {
+	if store.contains(entry.fromName, entry.toName, entry.date) {
+		return true, true // doppelter Config-Eintrag, im selben Zyklus schon gemeldet
+	}
+	if err := SendTelegramNotification(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, connections); err != nil {
+		log.Printf("  ⚠ Telegram notification failed: %v", err)
+		return false, false
+	}
+	log.Printf("  📨 Telegram notification sent, removing from watch list")
+	store.add(entry.fromName, entry.toName, entry.date, time.Now())
+	if err := store.save(); err != nil {
+		log.Printf("  ⚠ Notified-Datei nicht gespeichert: %v — nach Neustart droht erneute Meldung", err)
+		return true, false
+	}
+	return true, true
 }
 
 const (
@@ -309,7 +382,7 @@ func runCanaryCheck(client *OEBBClient, cfg *Config, entry *watchEntry, failures
 		msg := buildCanaryAlertText(*failures, entry.fromName, entry.toName)
 		if err := sendTelegram(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramTopicID, msg); err != nil {
 			log.Printf("  Canary: Telegram alert failed: %v", err)
-			return true
+			return false
 		}
 		log.Printf("  Canary: 📨 Alert sent")
 		*alerted = true

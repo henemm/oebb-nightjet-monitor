@@ -76,3 +76,20 @@ func TestNotified_EmptyPathSaveIsNoop(t *testing.T) {
 		t.Error("Store im Arbeitsspeicher muss trotzdem funktionieren")
 	}
 }
+
+func TestNotified_DirtyFlag(t *testing.T) {
+	s, err := loadNotified(filepath.Join(t.TempDir(), "nightjet.notified"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.add(watchFrom, watchTo, "2026-12-28", time.Now())
+	if !s.dirty {
+		t.Error("nach add muss dirty true sein")
+	}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	if s.dirty {
+		t.Error("nach erfolgreichem save muss dirty false sein")
+	}
+}
